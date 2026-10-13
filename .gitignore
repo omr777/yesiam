@@ -1,0 +1,11 @@
+﻿**/.env
+**/.env.*
+!**/.env.example
+
+**/node_modules/
+**/vendor/
+**/.angular/
+**/dist/
+
+**/storage/logs/*.log
+*.sql.gz
