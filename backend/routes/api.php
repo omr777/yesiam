@@ -4,6 +4,7 @@
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\DepartmentController;
+use App\Http\Controllers\Api\UserController;
 
 Route::get('/health', function () {
     return response()->json([
@@ -43,5 +44,11 @@ Route::middleware([
     '/departments/{department}/deactivate',
     [DepartmentController::class, 'deactivate']
     );
+    
+    Route::post(
+    '/users',
+    [UserController::class, 'store']
+    );
+
 
 });
