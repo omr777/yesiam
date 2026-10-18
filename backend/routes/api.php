@@ -5,6 +5,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\DepartmentController;
 use App\Http\Controllers\Api\UserController;
+use App\Http\Controllers\Api\AuditLogController;
 
 Route::get('/health', function () {
     return response()->json([
@@ -60,6 +61,9 @@ Route::middleware([
     [UserController::class, 'deactivate']
     );
 
-
+    Route::get(
+    '/audit-logs',
+    [AuditLogController::class, 'index']
+    );
 
 });
