@@ -3,10 +3,17 @@
 namespace App\Services;
 
 use App\Models\AuditLog;
+use App\Models\Department;
 use App\Models\User;
 
 class AuditService
 {
+    /*
+    |--------------------------------------------------------------------------
+    | AUDITORÍA DE IDENTIDADES
+    |--------------------------------------------------------------------------
+    */
+
     public function identityCreated(
         User $actor,
         User $target,
@@ -61,17 +68,83 @@ class AuditService
         );
     }
 
+    /*
+    |--------------------------------------------------------------------------
+    | AUDITORÍA DE DEPARTAMENTOS
+    |--------------------------------------------------------------------------
+    */
+
+    public function departmentCreated(
+        User $actor,
+        Department $target,
+        ?string $ipAddress
+    ): void {
+        $this->write(
+            $actor,
+            'department.created',
+            $target,
+            [
+                'name' => $target->name,
+                'code' => $target->code,
+                'is_active' => (bool) $target->is_active,
+            ],
+            $ipAddress
+        );
+    }
+
+    public function departmentUpdated(
+        User $actor,
+        Department $target,
+        array $changes,
+        ?string $ipAddress
+    ): void {
+        $this->write(
+            $actor,
+            'department.updated',
+            $target,
+            [
+                'changes' => $changes,
+            ],
+            $ipAddress
+        );
+    }
+
+    public function departmentDeactivated(
+        User $actor,
+        Department $target,
+        ?string $ipAddress
+    ): void {
+        $this->write(
+            $actor,
+            'department.deactivated',
+            $target,
+            [
+                'previous_is_active' => true,
+                'new_is_active' => false,
+            ],
+            $ipAddress
+        );
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | ESCRITURA CENTRALIZADA
+    |--------------------------------------------------------------------------
+    */
+
     private function write(
         User $actor,
         string $action,
-        User $target,
+        User|Department $target,
         array $metadata,
         ?string $ipAddress
     ): void {
         AuditLog::create([
             'actor_user_id' => $actor->id,
             'action' => $action,
-            'entity_type' => 'user',
+            'entity_type' => $target instanceof Department
+                ? 'department'
+                : 'user',
             'entity_id' => $target->id,
             'outcome' => 'success',
             'metadata' => $metadata,
