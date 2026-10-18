@@ -54,6 +54,12 @@ Route::middleware([
     '/users/{user}/department',
     [UserController::class, 'changeDepartment']
     );
+    
+    Route::patch(
+    '/users/{user}/deactivate',
+    [UserController::class, 'deactivate']
+    );
+
 
 
 });

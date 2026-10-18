@@ -19,4 +19,12 @@ class UserPolicy
         && $actor->id !== $target->id;
     }
 
+    public function deactivate(
+    User $actor,
+    User $target
+    ): bool {
+    return $actor->hasPermission('users.manage')
+        && $actor->id !== $target->id;
+    }
+
 }

@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
+
 class UserController extends Controller
 {
     public function store(Request $request): JsonResponse
@@ -116,4 +117,46 @@ class UserController extends Controller
             ],
         ]);
     }
+    
+    public function deactivate(User $user): JsonResponse
+    {
+    Gate::authorize('deactivate', $user);
+
+    if ($user->status === 'disabled') {
+        return response()->json([
+            'message' => 'La identidad ya está desactivada.',
+        ], 409);
+    }
+
+    // Esta implementación requiere sesiones en MySQL.
+    abort_unless(
+        config('session.driver') === 'database',
+        503,
+        'La revocación de sesiones no está configurada.'
+    );
+
+    DB::transaction(function () use ($user) {
+
+        // 1. Desactivar la identidad.
+        $user->status = 'disabled';
+        $user->save();
+
+        // 2. Eliminar las sesiones persistidas del usuario.
+        DB::table('sessions')
+            ->where('user_id', $user->id)
+            ->delete();
+
+        // 3. Revocar sus tokens de Sanctum.
+        $user->tokens()->delete();
+    });
+
+    return response()->json([
+        'message' => 'Identidad desactivada correctamente.',
+        'data' => [
+            'id' => $user->id,
+            'status' => 'disabled',
+        ],
+    ]);
+    }
+
 }
