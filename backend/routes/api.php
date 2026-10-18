@@ -33,4 +33,15 @@ Route::middleware([
         '/departments',
         [DepartmentController::class, 'store']
     );
+    
+    Route::patch(
+    '/departments/{department}',
+    [DepartmentController::class, 'update']
+    );
+
+    Route::patch(
+    '/departments/{department}/deactivate',
+    [DepartmentController::class, 'deactivate']
+    );
+
 });

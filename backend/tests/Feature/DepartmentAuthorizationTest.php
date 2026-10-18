@@ -105,4 +105,151 @@ class DepartmentAuthorizationTest extends TestCase
             'code' => 'FIN',
         ])->assertStatus(403);
     }
+    
+public function test_employee_cannot_update_department(): void
+{
+    $employee = $this->userWithRole('employee');
+
+    $department = Department::create([
+        'name' => 'Finanzas',
+        'code' => 'FIN',
+        'is_active' => true,
+    ]);
+
+    $this->actingAs($employee, 'web')
+        ->patchJson("/api/departments/{$department->id}", [
+            'name' => 'Finanzas Modificado',
+        ])
+        ->assertStatus(403);
+
+    $this->assertDatabaseHas('departments', [
+        'id' => $department->id,
+        'name' => 'Finanzas',
+    ]);
+}
+
+public function test_admin_can_update_department(): void
+{
+    $admin = $this->userWithRole('iam_admin');
+
+    $department = Department::create([
+        'name' => 'Finanzas',
+        'code' => 'FIN',
+        'is_active' => true,
+    ]);
+
+    $this->actingAs($admin, 'web')
+        ->patchJson("/api/departments/{$department->id}", [
+            'name' => 'Administración Financiera',
+        ])
+        ->assertOk()
+        ->assertJsonPath(
+            'data.name',
+            'Administración Financiera'
+        );
+
+    $this->assertDatabaseHas('departments', [
+        'id' => $department->id,
+        'name' => 'Administración Financiera',
+        'code' => 'FIN',
+    ]);
+}
+
+public function test_employee_cannot_deactivate_department(): void
+{
+    $employee = $this->userWithRole('employee');
+
+    $department = Department::create([
+        'name' => 'Finanzas',
+        'code' => 'FIN',
+        'is_active' => true,
+    ]);
+
+    $this->actingAs($employee, 'web')
+        ->patchJson(
+            "/api/departments/{$department->id}/deactivate"
+        )
+        ->assertStatus(403);
+
+    $this->assertDatabaseHas('departments', [
+        'id' => $department->id,
+        'is_active' => true,
+    ]);
+}
+
+public function test_admin_can_deactivate_department(): void
+{
+    $admin = $this->userWithRole('iam_admin');
+
+    $department = Department::create([
+        'name' => 'Finanzas',
+        'code' => 'FIN',
+        'is_active' => true,
+    ]);
+
+    $this->actingAs($admin, 'web')
+        ->patchJson(
+            "/api/departments/{$department->id}/deactivate"
+        )
+        ->assertOk()
+        ->assertJsonPath('data.is_active', false);
+
+    $this->assertDatabaseHas('departments', [
+        'id' => $department->id,
+        'name' => 'Finanzas',
+        'is_active' => false,
+    ]);
+}
+
+public function test_inactive_department_cannot_be_updated(): void
+{
+    $admin = $this->userWithRole('iam_admin');
+
+    $department = Department::create([
+        'name' => 'Finanzas',
+        'code' => 'FIN',
+        'is_active' => false,
+    ]);
+
+    $this->actingAs($admin, 'web')
+        ->patchJson("/api/departments/{$department->id}", [
+            'name' => 'Nuevo nombre',
+        ])
+        ->assertStatus(409);
+
+    $this->assertDatabaseHas('departments', [
+        'id' => $department->id,
+        'name' => 'Finanzas',
+    ]);
+}
+
+public function test_admin_cannot_duplicate_department_code(): void
+{
+    $admin = $this->userWithRole('iam_admin');
+
+    Department::create([
+        'name' => 'Finanzas',
+        'code' => 'FIN',
+        'is_active' => true,
+    ]);
+
+    $department = Department::create([
+        'name' => 'Sistemas',
+        'code' => 'IT',
+        'is_active' => true,
+    ]);
+
+    $this->actingAs($admin, 'web')
+        ->patchJson("/api/departments/{$department->id}", [
+            'code' => 'FIN',
+        ])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['code']);
+
+    $this->assertDatabaseHas('departments', [
+        'id' => $department->id,
+        'code' => 'IT',
+    ]);
+}
+
 }

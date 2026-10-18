@@ -16,4 +16,15 @@ class DepartmentPolicy
     {
         return $user->hasPermission('departments.create');
     }
+    
+    public function update(User $user, Department $department): bool
+    {
+    return $user->hasPermission('departments.update');
+    }
+
+    public function deactivate(User $user, Department $department): bool
+    {
+    return $user->hasPermission('departments.deactivate');
+    }
+
 }
