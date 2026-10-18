@@ -10,4 +10,13 @@ class UserPolicy
     {
         return $user->hasPermission('users.manage');
     }
+    
+    public function changeDepartment(
+    User $actor,
+    User $target
+    ): bool {
+    return $actor->hasPermission('users.manage')
+        && $actor->id !== $target->id;
+    }
+
 }

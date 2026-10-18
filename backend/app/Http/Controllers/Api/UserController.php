@@ -38,7 +38,6 @@ class UserController extends Controller
                     ->where('is_active', true),
             ],
         ]);
-
         $user = DB::transaction(function () use ($validated) {
             $employeeRole = Role::where('code', 'employee')
                 ->firstOrFail();
@@ -73,5 +72,48 @@ class UserController extends Controller
                 'roles' => ['employee'],
             ],
         ], 201);
+    }
+
+    public function changeDepartment(Request $request, User $user): JsonResponse
+    {
+        Gate::authorize('changeDepartment', $user);
+
+        if ($user->status === 'disabled') {
+            return response()->json([
+                'message' => 'No se puede trasladar una identidad desactivada.',
+            ], 409);
+        }
+
+        $validated = $request->validate([
+            'department_id' => [
+                'required',
+                'integer',
+                Rule::exists('departments', 'id')
+                    ->where('is_active', true),
+            ],
+        ]);
+
+        $newDepartmentId = (int) $validated['department_id'];
+
+        if ((int) $user->department_id === $newDepartmentId) {
+            return response()->json([
+                'message' => 'El usuario ya pertenece a ese departamento.',
+            ], 409);
+        }
+
+        $previousDepartmentId = $user->department_id;
+
+        $user->department_id = $newDepartmentId;
+        $user->save();
+
+        return response()->json([
+            'message' => 'Departamento actualizado correctamente.',
+            'data' => [
+                'id' => $user->id,
+                'name' => $user->name,
+                'previous_department_id' => $previousDepartmentId,
+                'department_id' => $user->department_id,
+            ],
+        ]);
     }
 }

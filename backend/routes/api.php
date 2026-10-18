@@ -50,5 +50,10 @@ Route::middleware([
     [UserController::class, 'store']
     );
 
+    Route::patch(
+    '/users/{user}/department',
+    [UserController::class, 'changeDepartment']
+    );
+
 
 });
