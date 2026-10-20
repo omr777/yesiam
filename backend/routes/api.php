@@ -123,14 +123,25 @@ Route::middleware([
         [ResourceController::class, 'deactivate']
     );
 
+    
     // SOLICITUDES DE ACCESO
+
+    // Consultar solicitudes propias.
     Route::get(
         '/access-requests',
         [AccessRequestController::class, 'index']
     );
 
+    // Consultar solicitudes pendientes asignadas.
+    Route::get(
+        '/access-requests/assigned',
+        [AccessRequestController::class, 'assigned']
+    );
+
+    // Crear una solicitud.
     Route::post(
         '/access-requests',
         [AccessRequestController::class, 'store']
     );
+
 });

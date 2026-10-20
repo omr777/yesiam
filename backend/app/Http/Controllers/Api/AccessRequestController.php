@@ -17,7 +17,7 @@ class AccessRequestController extends Controller
 {
     /*
     |--------------------------------------------------------------------------
-    | INYECCIÓN DEL SERVICIO DE AUDITORÍA
+    | SERVICIO DE AUDITORÍA
     |--------------------------------------------------------------------------
     */
 
@@ -28,7 +28,7 @@ class AccessRequestController extends Controller
 
     /*
     |--------------------------------------------------------------------------
-    | CONSULTAR MIS SOLICITUDES
+    | CONSULTAR MIS PROPIAS SOLICITUDES
     |--------------------------------------------------------------------------
     */
 
@@ -53,16 +53,79 @@ class AccessRequestController extends Controller
 
     /*
     |--------------------------------------------------------------------------
+    | CONSULTAR SOLICITUDES PENDIENTES ASIGNADAS
+    |--------------------------------------------------------------------------
+    */
+
+    public function assigned(Request $request): JsonResponse
+    {
+        // 1. Autorizar mediante AccessRequestPolicy.
+        Gate::authorize(
+            'viewAssigned',
+            AccessRequest::class
+        );
+
+        // 2. Identificar al responsable autenticado.
+        $actor = $request->user();
+
+        /*
+         * 3. Buscar exclusivamente solicitudes pendientes
+         * de recursos que el usuario administra.
+         */
+        $requests = AccessRequest::query()
+            ->where('status', 'pending')
+
+            // Evitar mostrar solicitudes propias.
+            ->where('requester_user_id', '!=', $actor->id)
+
+            // Solo solicitantes con cuentas activas.
+            ->whereHas('requester', function ($query) {
+                $query->where('status', 'active');
+            })
+
+            // Solo recursos activos asignados al responsable.
+            ->whereHas('resource', function ($query) use ($actor) {
+                $query->where('is_active', true);
+
+                $query->whereHas(
+                    'approvers',
+                    function ($approvers) use ($actor) {
+                        $approvers->where(
+                            'users.id',
+                            $actor->id
+                        );
+                    }
+                );
+            })
+
+            // Información necesaria para revisar solicitudes.
+            ->with([
+                'requester:id,name,status',
+                'resource:id,name,code,is_active',
+            ])
+
+            // Ordenar primero las solicitudes recientes.
+            ->orderByDesc('created_at')
+            ->orderByDesc('id')
+
+            // Limitar el volumen de resultados.
+            ->paginate(20);
+
+        return response()->json($requests);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
     | CREAR SOLICITUD DE ACCESO
     |--------------------------------------------------------------------------
     */
 
     public function store(Request $request): JsonResponse
     {
-        // 1. Comprobar si puede solicitar accesos.
+        // 1. Verificar permiso para solicitar acceso.
         Gate::authorize('create', AccessRequest::class);
 
-        // 2. Validar únicamente los campos permitidos.
+        // 2. Validar los campos recibidos.
         $validated = $request->validate([
             'resource_id' => [
                 'required',
@@ -78,7 +141,7 @@ class AccessRequestController extends Controller
             ],
         ]);
 
-        // 3. Identificar al empleado autenticado.
+        // 3. Obtener la identidad autenticada.
         $actor = $request->user();
 
         /*
@@ -92,7 +155,7 @@ class AccessRequestController extends Controller
             $actor,
             $request
         ) {
-            // 4. Bloquear el recurso durante la operación.
+            // 4. Bloquear y comprobar el recurso.
             $resource = Resource::query()
                 ->whereKey($validated['resource_id'])
                 ->where('is_active', true)
@@ -107,7 +170,7 @@ class AccessRequestController extends Controller
                 ]);
             }
 
-            // 5. Comprobar solicitudes pendientes duplicadas.
+            // 5. Impedir solicitudes pendientes duplicadas.
             $alreadyPending = AccessRequest::query()
                 ->where('requester_user_id', $actor->id)
                 ->where('resource_id', $resource->id)
@@ -129,13 +192,10 @@ class AccessRequestController extends Controller
                 'justification' => $validated['justification'],
             ]);
 
-            /*
-             * 7. Recuperar los valores asignados por MySQL.
-             * Esto incluye status = 'pending'.
-             */
+            // 7. Recuperar el estado asignado por MySQL.
             $newRequest->refresh();
 
-            // 8. Registrar el evento de auditoría.
+            // 8. Registrar la operación en auditoría.
             $this->audit->accessRequested(
                 $actor,
                 $newRequest,
@@ -144,12 +204,6 @@ class AccessRequestController extends Controller
 
             return $newRequest;
         });
-
-        /*
-        |--------------------------------------------------------------------------
-        | RESPUESTA
-        |--------------------------------------------------------------------------
-        */
 
         return response()->json([
             'message' => 'Solicitud de acceso creada correctamente.',
