@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\AuditLog;
 use App\Models\Department;
+use App\Models\Resource;
 use App\Models\User;
 
 class AuditService
@@ -128,6 +129,64 @@ class AuditService
 
     /*
     |--------------------------------------------------------------------------
+    | AUDITORÍA DE RECURSOS
+    |--------------------------------------------------------------------------
+    */
+
+    public function resourceCreated(
+        User $actor,
+        Resource $target,
+        ?string $ipAddress
+    ): void {
+        $this->write(
+            $actor,
+            'resource.created',
+            $target,
+            [
+                'name' => $target->name,
+                'code' => $target->code,
+                'is_active' => (bool) $target->is_active,
+            ],
+            $ipAddress
+        );
+    }
+
+    public function resourceUpdated(
+        User $actor,
+        Resource $target,
+        array $changes,
+        ?string $ipAddress
+    ): void {
+        $this->write(
+            $actor,
+            'resource.updated',
+            $target,
+            [
+                'changes' => $changes,
+            ],
+            $ipAddress
+        );
+    }
+
+    public function resourceDeactivated(
+        User $actor,
+        Resource $target,
+        ?string $ipAddress
+    ): void {
+        $this->write(
+            $actor,
+            'resource.deactivated',
+            $target,
+            [
+                'previous_is_active' => true,
+                'new_is_active' => false,
+            ],
+            $ipAddress
+        );
+    }
+
+    /*
+    |--------------------------------------------------------------------------
     | ESCRITURA CENTRALIZADA
     |--------------------------------------------------------------------------
     */
@@ -135,16 +194,20 @@ class AuditService
     private function write(
         User $actor,
         string $action,
-        User|Department $target,
+        User|Department|Resource $target,
         array $metadata,
         ?string $ipAddress
     ): void {
+        $entityType = match (true) {
+            $target instanceof Department => 'department',
+            $target instanceof Resource => 'resource',
+            default => 'user',
+        };
+
         AuditLog::create([
             'actor_user_id' => $actor->id,
             'action' => $action,
-            'entity_type' => $target instanceof Department
-                ? 'department'
-                : 'user',
+            'entity_type' => $entityType,
             'entity_id' => $target->id,
             'outcome' => 'success',
             'metadata' => $metadata,
