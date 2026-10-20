@@ -58,9 +58,28 @@ class User extends Authenticatable
         })
         ->exists();
 }
+    
     public function department(): BelongsTo
-{
-    return $this->belongsTo(Department::class);
+    {
+        return $this->belongsTo(Department::class);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | RECURSOS QUE ESTE USUARIO TIENE ASIGNADOS
+    |--------------------------------------------------------------------------
+    */
+
+    public function managedResources(): BelongsToMany
+    {
+        return $this->belongsToMany(
+            Resource::class,
+            'resource_approvers',
+            'user_id',
+            'resource_id'
+        )
+            ->withPivot('assigned_by_user_id')
+            ->withTimestamps();
+    }
 }
 
-}

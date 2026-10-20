@@ -7,35 +7,75 @@ use App\Models\User;
 
 class ResourcePolicy
 {
-    // Consultar el catálogo de recursos.
+    /*
+    |--------------------------------------------------------------------------
+    | CONSULTAR RECURSOS
+    |--------------------------------------------------------------------------
+    */
+
     public function viewAny(User $user): bool
     {
         return $user->hasPermission('resources.view');
     }
 
-    // Consultar un recurso específico.
-    public function view(User $user, Resource $resource): bool
-    {
+    public function view(
+        User $user,
+        Resource $resource
+    ): bool {
         return $user->hasPermission('resources.view');
     }
 
-    // Crear nuevos recursos.
+    /*
+    |--------------------------------------------------------------------------
+    | CREAR RECURSOS
+    |--------------------------------------------------------------------------
+    */
+
     public function create(User $user): bool
     {
         return $user->hasPermission('resources.manage');
     }
 
-    // Modificar recursos activos.
-    public function update(User $user, Resource $resource): bool
-    {
+    /*
+    |--------------------------------------------------------------------------
+    | MODIFICAR RECURSOS
+    |--------------------------------------------------------------------------
+    */
+
+    public function update(
+        User $user,
+        Resource $resource
+    ): bool {
         return $user->hasPermission('resources.manage')
             && $resource->is_active;
     }
 
-    // Desactivar recursos activos.
-    public function deactivate(User $user, Resource $resource): bool
-    {
+    /*
+    |--------------------------------------------------------------------------
+    | DESACTIVAR RECURSOS
+    |--------------------------------------------------------------------------
+    */
+
+    public function deactivate(
+        User $user,
+        Resource $resource
+    ): bool {
         return $user->hasPermission('resources.manage')
+            && $resource->is_active;
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | ASIGNAR RESPONSABLES DE APROBACIÓN
+    |--------------------------------------------------------------------------
+    */
+
+    public function assignApprover(
+        User $actor,
+        Resource $resource
+    ): bool {
+        return $actor->status === 'active'
+            && $actor->hasPermission('resources.manage')
             && $resource->is_active;
     }
 }

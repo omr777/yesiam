@@ -7,6 +7,8 @@ use App\Http\Controllers\Api\DepartmentController;
 use App\Http\Controllers\Api\UserController;
 use App\Http\Controllers\Api\AuditLogController;
 use App\Http\Controllers\Api\ResourceController;
+use App\Http\Controllers\Api\AccessRequestController;
+use App\Http\Controllers\Api\ResourceApproverController;
 
 /*
 |--------------------------------------------------------------------------
@@ -46,10 +48,13 @@ Route::middleware([
     'account.active',
 ])->group(function () {
 
-    /*
-    | DEPARTAMENTOS
-    */
+    // Responsables de aprobación
+    Route::post(
+    '/resources/{resource}/approvers',
+    [ResourceApproverController::class, 'store']
+    );
 
+    // DEPARTAMENTOS
     Route::get(
         '/departments',
         [DepartmentController::class, 'index']
@@ -70,10 +75,7 @@ Route::middleware([
         [DepartmentController::class, 'deactivate']
     );
 
-    /*
-    | IDENTIDADES
-    */
-
+    // IDENTIDADES
     Route::post(
         '/users',
         [UserController::class, 'store']
@@ -89,19 +91,13 @@ Route::middleware([
         [UserController::class, 'deactivate']
     );
 
-    /*
-    | AUDITORÍA
-    */
-
+    // AUDITORÍA
     Route::get(
         '/audit-logs',
         [AuditLogController::class, 'index']
     );
 
-    /*
-    | RECURSOS
-    */
-
+    // RECURSOS
     Route::get(
         '/resources',
         [ResourceController::class, 'index']
@@ -127,4 +123,14 @@ Route::middleware([
         [ResourceController::class, 'deactivate']
     );
 
+    // SOLICITUDES DE ACCESO
+    Route::get(
+        '/access-requests',
+        [AccessRequestController::class, 'index']
+    );
+
+    Route::post(
+        '/access-requests',
+        [AccessRequestController::class, 'store']
+    );
 });

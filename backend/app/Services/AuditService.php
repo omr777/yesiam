@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\AccessRequest;
 use App\Models\AuditLog;
 use App\Models\Department;
 use App\Models\Resource;
@@ -11,7 +12,7 @@ class AuditService
 {
     /*
     |--------------------------------------------------------------------------
-    | AUDITORÍA DE IDENTIDADES
+    | IDENTIDADES
     |--------------------------------------------------------------------------
     */
 
@@ -71,7 +72,7 @@ class AuditService
 
     /*
     |--------------------------------------------------------------------------
-    | AUDITORÍA DE DEPARTAMENTOS
+    | DEPARTAMENTOS
     |--------------------------------------------------------------------------
     */
 
@@ -129,7 +130,7 @@ class AuditService
 
     /*
     |--------------------------------------------------------------------------
-    | AUDITORÍA DE RECURSOS
+    | RECURSOS
     |--------------------------------------------------------------------------
     */
 
@@ -187,6 +188,53 @@ class AuditService
 
     /*
     |--------------------------------------------------------------------------
+    | SOLICITUDES DE ACCESO
+    |--------------------------------------------------------------------------
+    */
+
+    public function accessRequested(
+        User $actor,
+        AccessRequest $target,
+        ?string $ipAddress
+    ): void {
+        $this->write(
+            $actor,
+            'access.requested',
+            $target,
+            [
+                'resource_id' => $target->resource_id,
+                'status' => $target->status,
+            ],
+            $ipAddress
+        );
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | ASIGNACIÓN DE RESPONSABLES - NUEVO
+    |--------------------------------------------------------------------------
+    */
+
+    public function resourceApproverAssigned(
+        User $actor,
+        Resource $resource,
+        User $approver,
+        ?string $ipAddress
+    ): void {
+        $this->write(
+            $actor,
+            'resource.approver_assigned',
+            $resource,
+            [
+                'approver_user_id' => $approver->id,
+                'assigned_by_user_id' => $actor->id,
+            ],
+            $ipAddress
+        );
+    }
+
+    /*
+    |--------------------------------------------------------------------------
     | ESCRITURA CENTRALIZADA
     |--------------------------------------------------------------------------
     */
@@ -194,13 +242,14 @@ class AuditService
     private function write(
         User $actor,
         string $action,
-        User|Department|Resource $target,
+        User|Department|Resource|AccessRequest $target,
         array $metadata,
         ?string $ipAddress
     ): void {
         $entityType = match (true) {
             $target instanceof Department => 'department',
             $target instanceof Resource => 'resource',
+            $target instanceof AccessRequest => 'access_request',
             default => 'user',
         };
 
