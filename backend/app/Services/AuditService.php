@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\AccessGrant;
 use App\Models\AccessRequest;
 use App\Models\AuditLog;
 use App\Models\Department;
@@ -211,7 +212,7 @@ class AuditService
 
     /*
     |--------------------------------------------------------------------------
-    | ASIGNACIÓN DE RESPONSABLES - NUEVO
+    | ASIGNACIÓN DE RESPONSABLES
     |--------------------------------------------------------------------------
     */
 
@@ -232,7 +233,7 @@ class AuditService
             $ipAddress
         );
     }
-        
+
     /*
     |--------------------------------------------------------------------------
     | AUDITORÍA DE APROBACIONES Y RECHAZOS
@@ -246,10 +247,7 @@ class AuditService
     ): void {
         /*
          * Determinar el evento según el estado final.
-         *
-         * No permitimos registrar una decisión
-         * de éxito para estados distintos de
-         * approved o rejected.
+         * Solo se permiten approved y rejected.
          */
         $action = match ($target->status) {
             'approved' => 'access.approved',
@@ -261,8 +259,7 @@ class AuditService
         };
 
         /*
-         * Guardar el evento mediante
-         * nuestro servicio centralizado.
+         * Registrar la decisión.
          */
         $this->write(
             $actor,
@@ -273,6 +270,40 @@ class AuditService
                 'previous_status' => 'pending',
                 'new_status' => $target->status,
                 'decided_by_user_id' => $actor->id,
+            ],
+            $ipAddress
+        );
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | AUDITORÍA DE CONCESIONES DE ACCESO
+    |--------------------------------------------------------------------------
+    */
+
+    public function accessGranted(
+        User $actor,
+        AccessRequest $accessRequest,
+        AccessGrant $grant,
+        ?string $ipAddress
+    ): void {
+        /*
+         * Registrar la concesión de acceso.
+         *
+         * La solicitud es la entidad auditada.
+         * El ID de la concesión se incluye
+         * en los metadatos.
+         */
+        $this->write(
+            $actor,
+            'access.granted',
+            $accessRequest,
+            [
+                'access_grant_id' => $grant->id,
+                'resource_id' => $grant->resource_id,
+                'beneficiary_user_id' => $grant->user_id,
+                'status' => $grant->status,
+                'granted_by_user_id' => $actor->id,
             ],
             $ipAddress
         );
@@ -291,6 +322,9 @@ class AuditService
         array $metadata,
         ?string $ipAddress
     ): void {
+        /*
+         * Identificar el tipo de entidad auditada.
+         */
         $entityType = match (true) {
             $target instanceof Department => 'department',
             $target instanceof Resource => 'resource',
@@ -298,6 +332,9 @@ class AuditService
             default => 'user',
         };
 
+        /*
+         * Crear el registro de auditoría.
+         */
         AuditLog::create([
             'actor_user_id' => $actor->id,
             'action' => $action,

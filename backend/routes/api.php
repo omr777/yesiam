@@ -10,6 +10,7 @@ use App\Http\Controllers\Api\ResourceController;
 use App\Http\Controllers\Api\AccessRequestController;
 use App\Http\Controllers\Api\ResourceApproverController;
 use App\Http\Controllers\Api\AccessDecisionController;
+use App\Http\Controllers\Api\AccessGrantController;
 
 /*
 |--------------------------------------------------------------------------
@@ -162,6 +163,18 @@ Route::middleware([
         '/access-requests/{accessRequest}/reject',
         [AccessDecisionController::class, 'reject']
     );
+    
+    /*
+    |--------------------------------------------------------------------------
+    | CONCESIONES DE ACCESO
+    |--------------------------------------------------------------------------
+    */
+
+    Route::post(
+        '/access-requests/{accessRequest}/grant',
+        [AccessGrantController::class, 'store']
+    );
+
 
 
 });
