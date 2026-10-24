@@ -232,6 +232,51 @@ class AuditService
             $ipAddress
         );
     }
+        
+    /*
+    |--------------------------------------------------------------------------
+    | AUDITORÍA DE APROBACIONES Y RECHAZOS
+    |--------------------------------------------------------------------------
+    */
+
+    public function accessDecisionRecorded(
+        User $actor,
+        AccessRequest $target,
+        ?string $ipAddress
+    ): void {
+        /*
+         * Determinar el evento según el estado final.
+         *
+         * No permitimos registrar una decisión
+         * de éxito para estados distintos de
+         * approved o rejected.
+         */
+        $action = match ($target->status) {
+            'approved' => 'access.approved',
+            'rejected' => 'access.rejected',
+
+            default => throw new \LogicException(
+                'Estado inválido para auditar una decisión de acceso.'
+            ),
+        };
+
+        /*
+         * Guardar el evento mediante
+         * nuestro servicio centralizado.
+         */
+        $this->write(
+            $actor,
+            $action,
+            $target,
+            [
+                'resource_id' => $target->resource_id,
+                'previous_status' => 'pending',
+                'new_status' => $target->status,
+                'decided_by_user_id' => $actor->id,
+            ],
+            $ipAddress
+        );
+    }
 
     /*
     |--------------------------------------------------------------------------

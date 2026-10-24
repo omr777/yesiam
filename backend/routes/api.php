@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\AuditLogController;
 use App\Http\Controllers\Api\ResourceController;
 use App\Http\Controllers\Api\AccessRequestController;
 use App\Http\Controllers\Api\ResourceApproverController;
+use App\Http\Controllers\Api\AccessDecisionController;
 
 /*
 |--------------------------------------------------------------------------
@@ -143,5 +144,24 @@ Route::middleware([
         '/access-requests',
         [AccessRequestController::class, 'store']
     );
+    
+    /*
+    |--------------------------------------------------------------------------
+    | DECISIONES DE ACCESO
+    |--------------------------------------------------------------------------
+    */
+
+    // Aprobar una solicitud pendiente.
+    Route::post(
+        '/access-requests/{accessRequest}/approve',
+        [AccessDecisionController::class, 'approve']
+    );
+
+    // Rechazar una solicitud pendiente.
+    Route::post(
+        '/access-requests/{accessRequest}/reject',
+        [AccessDecisionController::class, 'reject']
+    );
+
 
 });
