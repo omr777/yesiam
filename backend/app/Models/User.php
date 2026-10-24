@@ -3,14 +3,16 @@
 namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
+
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
-use Illuminate\Database\Eloquent\Relations\BelongsToMany;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Laravel\Sanctum\HasApiTokens;
 
 #[Fillable(['name', 'email', 'password'])]
@@ -18,13 +20,14 @@ use Laravel\Sanctum\HasApiTokens;
 class User extends Authenticatable
 {
     /** @use HasFactory<UserFactory> */
-    use HasApiTokens,HasFactory, Notifiable;
+    use HasApiTokens, HasFactory, Notifiable;
 
-    /**
-     * Get the attributes that should be cast.
-     *
-     * @return array<string, string>
-     */
+    /*
+    |--------------------------------------------------------------------------
+    | CONVERSIÓN DE ATRIBUTOS
+    |--------------------------------------------------------------------------
+    */
+
     protected function casts(): array
     {
         return [
@@ -32,33 +35,57 @@ class User extends Authenticatable
             'password' => 'hashed',
         ];
     }
-    
+
+    /*
+    |--------------------------------------------------------------------------
+    | ROLES DEL USUARIO
+    |--------------------------------------------------------------------------
+    */
+
     public function roles(): BelongsToMany
-{
-    return $this->belongsToMany(
-        Role::class,
-        'user_roles',
-        'user_id',
-        'role_id'
-    );
-}
+    {
+        return $this->belongsToMany(
+            Role::class,
+            'user_roles',
+            'user_id',
+            'role_id'
+        );
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | COMPROBAR SI EL USUARIO TIENE UN ROL
+    |--------------------------------------------------------------------------
+    */
 
     public function hasRole(string $code): bool
-{
-    return $this->roles()
-        ->where('roles.code', $code)
-        ->exists();
-}
+    {
+        return $this->roles()
+            ->where('roles.code', $code)
+            ->exists();
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | COMPROBAR PERMISOS
+    |--------------------------------------------------------------------------
+    */
 
     public function hasPermission(string $code): bool
-{
-    return $this->roles()
-        ->whereHas('permissions', function ($query) use ($code) {
-            $query->where('permissions.code', $code);
-        })
-        ->exists();
-}
-    
+    {
+        return $this->roles()
+            ->whereHas('permissions', function ($query) use ($code) {
+                $query->where('permissions.code', $code);
+            })
+            ->exists();
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | DEPARTAMENTO DEL USUARIO
+    |--------------------------------------------------------------------------
+    */
+
     public function department(): BelongsTo
     {
         return $this->belongsTo(Department::class);
@@ -66,7 +93,7 @@ class User extends Authenticatable
 
     /*
     |--------------------------------------------------------------------------
-    | RECURSOS QUE ESTE USUARIO TIENE ASIGNADOS
+    | RECURSOS QUE ADMINISTRA EL USUARIO
     |--------------------------------------------------------------------------
     */
 
@@ -81,5 +108,18 @@ class User extends Authenticatable
             ->withPivot('assigned_by_user_id')
             ->withTimestamps();
     }
-}
 
+    /*
+    |--------------------------------------------------------------------------
+    | CONCESIONES DE ACCESO DEL USUARIO
+    |--------------------------------------------------------------------------
+    */
+
+    public function accessGrants(): HasMany
+    {
+        return $this->hasMany(
+            AccessGrant::class,
+            'user_id'
+        );
+    }
+}
