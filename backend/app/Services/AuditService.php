@@ -308,7 +308,65 @@ class AuditService
             $ipAddress
         );
     }
+        
+    /*
+    |--------------------------------------------------------------------------
+    | AUDITORÍA DE REVOCACIONES DE ACCESO
+    |--------------------------------------------------------------------------
+    */
 
+    public function accessRevoked(
+        User $actor,
+        AccessGrant $grant,
+        ?string $ipAddress
+    ): void {
+        /*
+         * Solo auditamos una revocación
+         * cuando la concesión ya tiene
+         * el estado revoked.
+         */
+        if ($grant->status !== 'revoked') {
+            throw new \LogicException(
+                'No se puede auditar una concesión que no está revocada.'
+            );
+        }
+
+        /*
+         * Recuperar la solicitud original.
+         *
+         * Utilizamos AccessRequest como
+         * entidad auditada para conservar
+         * la compatibilidad con AuditService.
+         */
+        $accessRequest = $grant->accessRequest;
+
+        if ($accessRequest === null) {
+            throw new \LogicException(
+                'La concesión no tiene una solicitud de origen válida.'
+            );
+        }
+
+        /*
+         * Registrar la revocación.
+         *
+         * El motivo completo permanece
+         * almacenado en access_grants.
+         */
+        $this->write(
+            $actor,
+            'access.revoked',
+            $accessRequest,
+            [
+                'access_grant_id' => $grant->id,
+                'resource_id' => $grant->resource_id,
+                'beneficiary_user_id' => $grant->user_id,
+                'previous_status' => 'active',
+                'new_status' => 'revoked',
+                'revoked_by_user_id' => $actor->id,
+            ],
+            $ipAddress
+        );
+    }
     /*
     |--------------------------------------------------------------------------
     | ESCRITURA CENTRALIZADA

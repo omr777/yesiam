@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\AccessRequestController;
 use App\Http\Controllers\Api\ResourceApproverController;
 use App\Http\Controllers\Api\AccessDecisionController;
 use App\Http\Controllers\Api\AccessGrantController;
+use App\Http\Controllers\Api\AccessRevocationController;
 
 /*
 |--------------------------------------------------------------------------
@@ -174,7 +175,16 @@ Route::middleware([
         '/access-requests/{accessRequest}/grant',
         [AccessGrantController::class, 'store']
     );
+    /*
+    |--------------------------------------------------------------------------
+    | REVOCACIÓN DE CONCESIONES DE ACCESO
+    |--------------------------------------------------------------------------
+    */
 
+    Route::post(
+        '/access-grants/{accessGrant}/revoke',
+        [AccessRevocationController::class, 'revoke']
+    );
 
 
 });
