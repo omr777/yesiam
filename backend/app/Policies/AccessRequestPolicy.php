@@ -108,7 +108,7 @@ class AccessRequestPolicy
         }
 
         // 2. Requiere privilegios de administración.
-        if (! $actor->hasPermission('resources.manage')) {
+        if (! $actor->hasPermission('access.grant')) {
             return false;
         }
 

@@ -18,50 +18,49 @@ class AccessGrantPolicy
         AccessGrant $accessGrant
     ): bool {
         /*
-         * 1. El operador debe tener
-         * una cuenta activa.
+         * 1. El operador debe estar activo.
          */
         if ($actor->status !== 'active') {
             return false;
         }
 
         /*
-         * 2. Debe disponer de privilegios
-         * administrativos.
+         * 2. Exigir el permiso específico
+         * para revocar concesiones.
          *
-         * Temporalmente reutilizamos
-         * resources.manage.
+         * Ya no utilizamos resources.manage.
          */
-        if (! $actor->hasPermission('resources.manage')) {
+        if (! $actor->hasPermission('access.revoke')) {
             return false;
         }
 
         /*
          * 3. Separation of Duties.
          *
-         * El operador no puede ejecutar
-         * la revocación de su propia
-         * concesión de acceso.
+         * El operador no puede revocar
+         * su propia concesión.
          */
-        if ((int) $accessGrant->user_id === (int) $actor->id) {
+        if (
+            (int) $accessGrant->user_id
+            === (int) $actor->id
+        ) {
             return false;
         }
 
         /*
-         * No exigimos que el usuario beneficiario
+         * 4. No exigimos que el beneficiario
          * ni el recurso estén activos.
          *
-         * Precisamente puede ser necesario
-         * revocar accesos después de desactivar
-         * una identidad o un recurso.
+         * Una concesión puede necesitar
+         * revocarse después de una baja.
          *
-         * El estado active/revoked será comprobado
-         * dentro de la transacción del controlador.
+         * El controlador verifica que
+         * la concesión siga activa
+         * dentro de la transacción.
          */
-
         return true;
     }
-        
+
     /*
     |--------------------------------------------------------------------------
     | CONSULTAR CONCESIONES DE UN USUARIO
@@ -73,29 +72,32 @@ class AccessGrantPolicy
         User $targetUser
     ): bool {
         /*
-         * 1. El usuario que consulta debe
-         * tener una cuenta activa.
+         * 1. Quien realiza la consulta
+         * debe tener una cuenta activa.
          */
         if ($actor->status !== 'active') {
             return false;
         }
 
         /*
-         * 2. Un usuario puede consultar
-         * sus propias concesiones.
+         * 2. Un usuario activo siempre
+         * puede consultar su propio
+         * inventario de concesiones.
          */
-        if ((int) $actor->id === (int) $targetUser->id) {
+        if (
+            (int) $actor->id
+            === (int) $targetUser->id
+        ) {
             return true;
         }
 
         /*
-         * 3. Para consultar concesiones
-         * de otras personas, exigimos
-         * privilegios administrativos.
+         * 3. Para consultar los accesos
+         * de otra identidad, exigimos
+         * access.view_all.
          *
-         * Reutilizamos resources.manage
-         * por ahora.
+         * Ya no utilizamos resources.manage.
          */
-        return $actor->hasPermission('resources.manage');
+        return $actor->hasPermission('access.view_all');
     }
 }
