@@ -8,6 +8,7 @@ use App\Models\AccessRequest;
 use App\Models\Resource;
 use App\Models\User;
 use App\Services\AuditService;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -30,163 +31,319 @@ class AccessGrantController extends Controller
         Request $request,
         AccessRequest $accessRequest
     ): JsonResponse {
+
         /*
-         * Primera autorización:
-         * rechazar rápidamente operaciones no permitidas.
+         * 1. AUTORIZACIÓN INICIAL
+         *
+         * La política debe verificar:
+         *
+         * - Operador activo.
+         * - Permiso access.grant.
+         * - Solicitud aprobada.
+         * - Beneficiario activo.
+         * - Recurso activo.
+         * - Prohibición de autoconcesión.
          */
+
         Gate::authorize('grant', $accessRequest);
 
         $actor = $request->user();
 
         /*
-         * Toda la operación se ejecuta en una transacción.
+         * 2. TRANSACCIÓN DE PROVISIONAMIENTO
          *
-         * Si falla la concesión o la auditoría,
-         * ningún cambio debe persistir.
+         * La concesión y su auditoría deben
+         * confirmarse juntas.
+         *
+         * Si algo falla, Laravel revierte
+         * los cambios de esta transacción.
          */
-        $grant = DB::transaction(function () use (
-            $request,
-            $accessRequest,
-            $actor
-        ) {
-            /*
-             * 1. Bloquear la solicitud.
-             *
-             * Evita que dos operaciones modifiquen
-             * esta misma solicitud simultáneamente.
-             */
-            $lockedRequest = AccessRequest::query()
-                ->whereKey($accessRequest->id)
-                ->lockForUpdate()
-                ->firstOrFail();
 
-            /*
-             * 2. Bloquear al usuario beneficiario.
-             *
-             * Todos los grantings realizados mediante
-             * este flujo bloquearán la misma fila
-             * para el mismo usuario.
-             */
-            $beneficiary = User::query()
-                ->whereKey($lockedRequest->requester_user_id)
-                ->lockForUpdate()
-                ->firstOrFail();
+        try {
 
-            /*
-             * 3. Bloquear el recurso.
-             */
-            $resource = Resource::query()
-                ->whereKey($lockedRequest->resource_id)
-                ->lockForUpdate()
-                ->firstOrFail();
+            $grant = DB::transaction(function () use (
+                $request,
+                $accessRequest,
+                $actor
+            ) {
 
-            /*
-             * 4. Proporcionar a la política los datos
-             * actualizados que acabamos de bloquear.
-             */
-            $lockedRequest->setRelation(
-                'requester',
-                $beneficiary
-            );
+                /*
+                 * PASO 1: BLOQUEAR LA SOLICITUD
+                 *
+                 * Dos operaciones sobre una misma
+                 * solicitud no deben procesarse
+                 * simultáneamente.
+                 */
 
-            $lockedRequest->setRelation(
-                'resource',
-                $resource
-            );
+                $lockedRequest = AccessRequest::query()
+                    ->whereKey($accessRequest->id)
+                    ->lockForUpdate()
+                    ->firstOrFail();
 
-            /*
-             * 5. Repetir autorización dentro
-             * de la transacción.
-             *
-             * No confiamos solamente en la validación
-             * realizada antes de adquirir los bloqueos.
-             */
-            Gate::authorize('grant', $lockedRequest);
+                /*
+                 * PASO 2: BLOQUEAR AL BENEFICIARIO
+                 *
+                 * Este bloqueo ayuda a serializar
+                 * las concesiones del mismo usuario
+                 * cuando utilizan este flujo.
+                 */
 
-            /*
-             * 6. Impedir que esta solicitud genere
-             * más de una concesión.
-             *
-             * Además existe una restricción UNIQUE
-             * en access_request_id.
-             */
-            $alreadyGranted = AccessGrant::query()
-                ->where('access_request_id', $lockedRequest->id)
-                ->lockForUpdate()
-                ->first();
+                $beneficiary = User::query()
+                    ->whereKey(
+                        $lockedRequest->requester_user_id
+                    )
+                    ->lockForUpdate()
+                    ->firstOrFail();
 
-            if ($alreadyGranted !== null) {
-                abort(
-                    409,
-                    'Esta solicitud ya tiene una concesión registrada.'
+                /*
+                 * PASO 3: BLOQUEAR EL RECURSO
+                 */
+
+                $resource = Resource::query()
+                    ->whereKey(
+                        $lockedRequest->resource_id
+                    )
+                    ->lockForUpdate()
+                    ->firstOrFail();
+
+                /*
+                 * PASO 4: ACTUALIZAR LAS RELACIONES
+                 *
+                 * Proporcionamos a la política
+                 * los modelos bloqueados y actuales.
+                 */
+
+                $lockedRequest->setRelation(
+                    'requester',
+                    $beneficiary
                 );
+
+                $lockedRequest->setRelation(
+                    'resource',
+                    $resource
+                );
+
+                /*
+                 * PASO 5: REPETIR LA AUTORIZACIÓN
+                 *
+                 * No confiamos únicamente en
+                 * la comprobación inicial.
+                 *
+                 * Se verifica el estado después
+                 * de adquirir los bloqueos.
+                 */
+
+                Gate::authorize(
+                    'grant',
+                    $lockedRequest
+                );
+
+                /*
+                 * PASO 6: EVITAR CONCEDER
+                 * DOS VECES LA MISMA SOLICITUD
+                 */
+
+                $alreadyGranted = AccessGrant::query()
+                    ->where(
+                        'access_request_id',
+                        $lockedRequest->id
+                    )
+                    ->lockForUpdate()
+                    ->first();
+
+                if ($alreadyGranted !== null) {
+
+                    abort(
+                        409,
+                        'Esta solicitud ya tiene una concesión registrada.'
+                    );
+                }
+
+                /*
+                 * PASO 7: EVITAR CONCESIONES
+                 * ACTIVAS DUPLICADAS
+                 *
+                 * Comprobación a nivel de aplicación.
+                 *
+                 * El índice UNIQUE de MySQL,
+                 * creado en la Fase 15.1,
+                 * proporciona protección adicional.
+                 */
+
+                $existingActiveGrant = AccessGrant::query()
+                    ->where(
+                        'user_id',
+                        $beneficiary->id
+                    )
+                    ->where(
+                        'resource_id',
+                        $resource->id
+                    )
+                    ->where(
+                        'status',
+                        'active'
+                    )
+                    ->lockForUpdate()
+                    ->first();
+
+                if ($existingActiveGrant !== null) {
+
+                    abort(
+                        409,
+                        'El usuario ya tiene acceso activo a este recurso.'
+                    );
+                }
+
+                /*
+                 * PASO 8: CREAR LA CONCESIÓN
+                 *
+                 * Los datos sensibles se establecen
+                 * desde el backend.
+                 *
+                 * No aceptamos user_id,
+                 * granted_by_user_id ni status
+                 * enviados por el cliente.
+                 */
+
+                $newGrant = new AccessGrant();
+
+                $newGrant->forceFill([
+                    'access_request_id' =>
+                        $lockedRequest->id,
+
+                    'user_id' =>
+                        $beneficiary->id,
+
+                    'resource_id' =>
+                        $resource->id,
+
+                    'status' =>
+                        'active',
+
+                    'granted_by_user_id' =>
+                        $actor->id,
+
+                    'granted_at' =>
+                        now(),
+                ]);
+
+                /*
+                 * MySQL comprobará sus restricciones
+                 * UNIQUE durante esta inserción.
+                 *
+                 * Si detecta un duplicado, Laravel
+                 * lanzará una excepción específica.
+                 */
+
+                $newGrant->save();
+
+                /*
+                 * PASO 9: RECUPERAR EL REGISTRO
+                 * CON LOS VALORES DEFINITIVOS
+                 */
+
+                $newGrant->refresh();
+
+                /*
+                 * PASO 10: REGISTRAR AUDITORÍA
+                 *
+                 * El evento se crea dentro
+                 * de la misma transacción.
+                 *
+                 * Si la concesión falla,
+                 * no debe quedar una auditoría
+                 * falsa de acceso concedido.
+                 */
+
+                $this->audit->accessGranted(
+                    $actor,
+                    $lockedRequest,
+                    $newGrant,
+                    $request->ip()
+                );
+
+                return $newGrant;
+
+            }, 3);
+
+        } catch (UniqueConstraintViolationException $exception) {
+
+            /*
+             * 3. MANEJAR CONFLICTOS DE UNICIDAD
+             *
+             * Laravel identifica las violaciones
+             * de restricciones UNIQUE.
+             *
+             * Solo convertimos a HTTP 409
+             * los índices relacionados con
+             * una concesión duplicada.
+             *
+             * Nunca devolvemos mensajes SQL
+             * directamente al cliente.
+             */
+
+            $conflictIndexes = [
+
+                /*
+                 * Restricción de la Fase 15.1:
+                 *
+                 * Un único acceso activo
+                 * por usuario y recurso.
+                 */
+                'access_grants_unique_active_user_resource',
+
+                /*
+                 * Restricción original:
+                 *
+                 * Una concesión por solicitud.
+                 */
+                'access_grants_access_request_id_unique',
+            ];
+
+            /*
+             * Si la violación corresponde
+             * a otro índice, o Laravel no pudo
+             * identificarlo, no ocultamos el error.
+             */
+
+            if (! in_array(
+                $exception->index,
+                $conflictIndexes,
+                true
+            )) {
+                throw $exception;
             }
 
             /*
-             * 7. Impedir otra concesión ACTIVA
-             * para el mismo usuario y recurso.
+             * Conflicto de negocio:
              *
-             * El bloqueo del beneficiario serializa
-             * este flujo de concesión.
+             * La operación no puede completarse
+             * porque ya existe una concesión
+             * incompatible con la nueva.
              */
-            $existingActiveGrant = AccessGrant::query()
-                ->where('user_id', $beneficiary->id)
-                ->where('resource_id', $resource->id)
-                ->where('status', 'active')
-                ->lockForUpdate()
-                ->first();
 
-            if ($existingActiveGrant !== null) {
-                abort(
-                    409,
-                    'El usuario ya tiene acceso activo a este recurso.'
-                );
-            }
-
-            /*
-             * 8. Crear la concesión.
-             *
-             * Los identificadores y el administrador
-             * provienen del backend, no del cliente.
-             */
-            $newGrant = new AccessGrant();
-
-            $newGrant->forceFill([
-                'access_request_id' => $lockedRequest->id,
-                'user_id' => $beneficiary->id,
-                'resource_id' => $resource->id,
-                'status' => 'active',
-                'granted_by_user_id' => $actor->id,
-                'granted_at' => now(),
-            ]);
-
-            $newGrant->save();
-
-            /*
-             * 9. Actualizar el modelo con los valores
-             * definitivos de la base de datos.
-             */
-            $newGrant->refresh();
-
-            /*
-             * 10. Registrar auditoría dentro
-             * de la misma transacción.
-             */
-            $this->audit->accessGranted(
-                $actor,
-                $lockedRequest,
-                $newGrant,
-                $request->ip()
-            );
-
-            return $newGrant;
-        }, 3);
+            return response()->json([
+                'message' =>
+                    'El acceso ya fue concedido o existe una concesión activa para este recurso.',
+            ], 409);
+        }
 
         /*
-         * 201 Created: nueva concesión registrada.
+         * 4. RESPUESTA EXITOSA
+         *
+         * Solo llegamos aquí si:
+         *
+         * - La autorización fue válida.
+         * - No se encontró un duplicado.
+         * - MySQL aceptó la concesión.
+         * - Se registró la auditoría.
+         * - La transacción se confirmó.
          */
+
         return response()->json([
-            'message' => 'Acceso concedido correctamente.',
+            'message' =>
+                'Acceso concedido correctamente.',
+
             'data' => $grant->load([
                 'user:id,name',
                 'resource:id,name,code',
