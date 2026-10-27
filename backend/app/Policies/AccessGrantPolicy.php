@@ -61,4 +61,41 @@ class AccessGrantPolicy
 
         return true;
     }
+        
+    /*
+    |--------------------------------------------------------------------------
+    | CONSULTAR CONCESIONES DE UN USUARIO
+    |--------------------------------------------------------------------------
+    */
+
+    public function viewForUser(
+        User $actor,
+        User $targetUser
+    ): bool {
+        /*
+         * 1. El usuario que consulta debe
+         * tener una cuenta activa.
+         */
+        if ($actor->status !== 'active') {
+            return false;
+        }
+
+        /*
+         * 2. Un usuario puede consultar
+         * sus propias concesiones.
+         */
+        if ((int) $actor->id === (int) $targetUser->id) {
+            return true;
+        }
+
+        /*
+         * 3. Para consultar concesiones
+         * de otras personas, exigimos
+         * privilegios administrativos.
+         *
+         * Reutilizamos resources.manage
+         * por ahora.
+         */
+        return $actor->hasPermission('resources.manage');
+    }
 }

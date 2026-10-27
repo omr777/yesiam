@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\ResourceApproverController;
 use App\Http\Controllers\Api\AccessDecisionController;
 use App\Http\Controllers\Api\AccessGrantController;
 use App\Http\Controllers\Api\AccessRevocationController;
+use App\Http\Controllers\Api\UserAccessGrantController;
 
 /*
 |--------------------------------------------------------------------------
@@ -184,7 +185,15 @@ Route::middleware([
     Route::post(
         '/access-grants/{accessGrant}/revoke',
         [AccessRevocationController::class, 'revoke']
+    ); 
+    /*
+    |--------------------------------------------------------------------------
+    | INVENTARIO DE ACCESOS POR USUARIO
+    |--------------------------------------------------------------------------
+    */
+
+    Route::get(
+        '/users/{user}/access-grants',
+        [UserAccessGrantController::class, 'index']
     );
-
-
 });
