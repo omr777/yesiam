@@ -7,8 +7,9 @@ use App\Http\Controllers\Api\DepartmentController;
 use App\Http\Controllers\Api\UserController;
 use App\Http\Controllers\Api\AuditLogController;
 use App\Http\Controllers\Api\ResourceController;
-use App\Http\Controllers\Api\AccessRequestController;
 use App\Http\Controllers\Api\ResourceApproverController;
+use App\Http\Controllers\Api\ResourceDepartmentEligibilityController;
+use App\Http\Controllers\Api\AccessRequestController;
 use App\Http\Controllers\Api\AccessDecisionController;
 use App\Http\Controllers\Api\AccessGrantController;
 use App\Http\Controllers\Api\AccessRevocationController;
@@ -18,6 +19,9 @@ use App\Http\Controllers\Api\UserAccessGrantController;
 |--------------------------------------------------------------------------
 | HEALTH CHECK
 |--------------------------------------------------------------------------
+|
+| Ruta pública para comprobar el estado de YESIAM.
+|
 */
 
 Route::get('/health', function () {
@@ -32,6 +36,9 @@ Route::get('/health', function () {
 |--------------------------------------------------------------------------
 | USUARIO AUTENTICADO
 |--------------------------------------------------------------------------
+|
+| Requiere autenticación y cuenta activa.
+|
 */
 
 Route::get('/user', function (Request $request) {
@@ -45,6 +52,14 @@ Route::get('/user', function (Request $request) {
 |--------------------------------------------------------------------------
 | RUTAS PROTEGIDAS
 |--------------------------------------------------------------------------
+|
+| Todas las rutas del grupo requieren:
+|
+| 1. Identidad autenticada mediante Sanctum.
+| 2. Cuenta activa.
+|
+| Cada controlador aplica sus políticas RBAC.
+|
 */
 
 Route::middleware([
@@ -52,13 +67,12 @@ Route::middleware([
     'account.active',
 ])->group(function () {
 
-    // Responsables de aprobación
-    Route::post(
-    '/resources/{resource}/approvers',
-    [ResourceApproverController::class, 'store']
-    );
+    /*
+    |--------------------------------------------------------------------------
+    | DEPARTAMENTOS
+    |--------------------------------------------------------------------------
+    */
 
-    // DEPARTAMENTOS
     Route::get(
         '/departments',
         [DepartmentController::class, 'index']
@@ -79,7 +93,12 @@ Route::middleware([
         [DepartmentController::class, 'deactivate']
     );
 
-    // IDENTIDADES
+    /*
+    |--------------------------------------------------------------------------
+    | IDENTIDADES - JOINER / MOVER / LEAVER
+    |--------------------------------------------------------------------------
+    */
+
     Route::post(
         '/users',
         [UserController::class, 'store']
@@ -95,13 +114,23 @@ Route::middleware([
         [UserController::class, 'deactivate']
     );
 
-    // AUDITORÍA
+    /*
+    |--------------------------------------------------------------------------
+    | AUDITORÍA
+    |--------------------------------------------------------------------------
+    */
+
     Route::get(
         '/audit-logs',
         [AuditLogController::class, 'index']
     );
 
-    // RECURSOS
+    /*
+    |--------------------------------------------------------------------------
+    | CATÁLOGO DE RECURSOS
+    |--------------------------------------------------------------------------
+    */
+
     Route::get(
         '/resources',
         [ResourceController::class, 'index']
@@ -127,45 +156,85 @@ Route::middleware([
         [ResourceController::class, 'deactivate']
     );
 
-    
-    // SOLICITUDES DE ACCESO
+    /*
+    |--------------------------------------------------------------------------
+    | RESPONSABLES DE APROBACIÓN
+    |--------------------------------------------------------------------------
+    */
 
-    // Consultar solicitudes propias.
+    Route::post(
+        '/resources/{resource}/approvers',
+        [ResourceApproverController::class, 'store']
+    );
+
+    /*
+    |--------------------------------------------------------------------------
+    | ELEGIBILIDAD DEPARTAMENTAL - FASE 17
+    |--------------------------------------------------------------------------
+    |
+    | GET:
+    | Consultar las reglas de elegibilidad.
+    |
+    | PUT:
+    | Reemplazar la configuración departamental
+    | completa de un recurso.
+    |
+    | Ambas requieren Sanctum y cuenta activa.
+    |
+    | El controlador aplica ResourcePolicy:
+    |
+    | GET -> view -> resources.view
+    | PUT -> update -> resources.manage
+    |
+    */
+
+    Route::get(
+        '/resources/{resource}/eligibility',
+        [ResourceDepartmentEligibilityController::class, 'show']
+    );
+
+    Route::put(
+        '/resources/{resource}/eligibility',
+        [ResourceDepartmentEligibilityController::class, 'update']
+    );
+
+    /*
+    |--------------------------------------------------------------------------
+    | SOLICITUDES DE ACCESO
+    |--------------------------------------------------------------------------
+    */
+
     Route::get(
         '/access-requests',
         [AccessRequestController::class, 'index']
     );
 
-    // Consultar solicitudes pendientes asignadas.
     Route::get(
         '/access-requests/assigned',
         [AccessRequestController::class, 'assigned']
     );
 
-    // Crear una solicitud.
     Route::post(
         '/access-requests',
         [AccessRequestController::class, 'store']
     );
-    
+
     /*
     |--------------------------------------------------------------------------
-    | DECISIONES DE ACCESO
+    | APROBACIONES Y RECHAZOS
     |--------------------------------------------------------------------------
     */
 
-    // Aprobar una solicitud pendiente.
     Route::post(
         '/access-requests/{accessRequest}/approve',
         [AccessDecisionController::class, 'approve']
     );
 
-    // Rechazar una solicitud pendiente.
     Route::post(
         '/access-requests/{accessRequest}/reject',
         [AccessDecisionController::class, 'reject']
     );
-    
+
     /*
     |--------------------------------------------------------------------------
     | CONCESIONES DE ACCESO
@@ -176,19 +245,21 @@ Route::middleware([
         '/access-requests/{accessRequest}/grant',
         [AccessGrantController::class, 'store']
     );
+
     /*
     |--------------------------------------------------------------------------
-    | REVOCACIÓN DE CONCESIONES DE ACCESO
+    | REVOCACIÓN DE CONCESIONES
     |--------------------------------------------------------------------------
     */
 
     Route::post(
         '/access-grants/{accessGrant}/revoke',
         [AccessRevocationController::class, 'revoke']
-    ); 
+    );
+
     /*
     |--------------------------------------------------------------------------
-    | INVENTARIO DE ACCESOS POR USUARIO
+    | INVENTARIO DE ACCESOS
     |--------------------------------------------------------------------------
     */
 

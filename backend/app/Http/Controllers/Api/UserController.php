@@ -3,8 +3,11 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Department;
+use App\Models\Resource;
 use App\Models\Role;
 use App\Models\User;
+use App\Services\AccessEligibilityService;
 use App\Services\AuditService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -13,11 +16,19 @@ use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class UserController extends Controller
 {
+    /*
+    |--------------------------------------------------------------------------
+    | SERVICIOS
+    |--------------------------------------------------------------------------
+    */
+
     public function __construct(
-        private readonly AuditService $audit
+        private readonly AuditService $audit,
+        private readonly AccessEligibilityService $eligibility
     ) {
     }
 
@@ -115,19 +126,41 @@ class UserController extends Controller
 
     /*
     |--------------------------------------------------------------------------
-    | MOVER - CAMBIAR EL DEPARTAMENTO
+    | MOVER - CAMBIAR DE DEPARTAMENTO
     |--------------------------------------------------------------------------
+    |
+    | FASE 17.6
+    |
+    | 1. Verificar autorización.
+    | 2. Validar departamento de destino.
+    | 3. Bloquear identidad.
+    | 4. Bloquear recursos con concesiones activas.
+    | 5. Revalidar departamento de destino.
+    | 6. Actualizar departamento.
+    | 7. Reevaluar concesiones activas.
+    | 8. Revocar las que dejan de ser elegibles.
+    | 9. Auditar las revocaciones y el traslado.
+    |
+    | Todo ocurre en una transacción.
+    |
     */
 
     public function changeDepartment(
         Request $request,
         User $user
     ): JsonResponse {
+        /*
+         * AUTORIZACIÓN INICIAL
+         */
         Gate::authorize(
             'changeDepartment',
             $user
         );
 
+        /*
+         * Mantener comportamiento existente:
+         * no trasladar identidades desactivadas.
+         */
         if ($user->status === 'disabled') {
             return response()->json([
                 'message' =>
@@ -135,6 +168,9 @@ class UserController extends Controller
             ], 409);
         }
 
+        /*
+         * VALIDACIÓN INICIAL
+         */
         $validated = $request->validate([
             'department_id' => [
                 'required',
@@ -146,48 +182,243 @@ class UserController extends Controller
 
         $newDepartmentId = (int) $validated['department_id'];
 
-        if (
-            (int) $user->department_id
-            === $newDepartmentId
-        ) {
-            return response()->json([
-                'message' =>
-                    'El usuario ya pertenece a ese departamento.',
-            ], 409);
-        }
+        $actor = $request->user();
+        $ipAddress = $request->ip();
 
-        $previousDepartmentId = $user->department_id === null
-            ? null
-            : (int) $user->department_id;
-
-        DB::transaction(function () use (
-            $request,
+        /*
+         * TRANSACCIÓN DE GOBIERNO DE ACCESOS
+         */
+        $result = DB::transaction(function () use (
             $user,
-            $previousDepartmentId,
-            $newDepartmentId
+            $newDepartmentId,
+            $actor,
+            $ipAddress
         ) {
-            $user->department_id = $newDepartmentId;
+            /*
+             * PASO 1: BLOQUEAR LA IDENTIDAD
+             *
+             * Evita procesar simultáneamente
+             * modificaciones sobre esta identidad
+             * que utilicen el mismo protocolo.
+             */
+            $lockedUser = User::query()
+                ->whereKey($user->id)
+                ->lockForUpdate()
+                ->firstOrFail();
 
-            $user->save();
+            /*
+             * PASO 2: REPETIR AUTORIZACIÓN
+             */
+            Gate::authorize(
+                'changeDepartment',
+                $lockedUser
+            );
 
+            if ($lockedUser->status === 'disabled') {
+                abort(
+                    409,
+                    'No se puede trasladar una identidad desactivada.'
+                );
+            }
+
+            $previousDepartmentId =
+                $lockedUser->department_id === null
+                    ? null
+                    : (int) $lockedUser->department_id;
+
+            /*
+             * Evitar movimientos sin cambios.
+             */
+            if ($previousDepartmentId === $newDepartmentId) {
+                abort(
+                    409,
+                    'El usuario ya pertenece a ese departamento.'
+                );
+            }
+
+            /*
+             * PASO 3: IDENTIFICAR RECURSOS
+             * CON CONCESIONES ACTIVAS
+             *
+             * Consultamos sus IDs antes de
+             * adquirir los bloqueos de recursos.
+             */
+            $resourceIds = $lockedUser
+                ->accessGrants()
+                ->where('status', 'active')
+                ->distinct()
+                ->pluck('resource_id')
+                ->map(fn ($id) => (int) $id)
+                ->sort()
+                ->values()
+                ->all();
+
+            /*
+             * PASO 4: BLOQUEAR RECURSOS
+             *
+             * Orden estable por ID.
+             *
+             * Esto ayuda a coordinar cambios
+             * de elegibilidad con el movimiento.
+             */
+            $lockedResources = Resource::query()
+                ->whereIn('id', $resourceIds)
+                ->orderBy('id')
+                ->lockForUpdate()
+                ->get()
+                ->keyBy('id');
+
+            /*
+             * PASO 5: REVALIDAR DESTINO
+             *
+             * Un departamento podría haber sido
+             * desactivado desde la validación HTTP.
+             */
+            $destination = Department::query()
+                ->whereKey($newDepartmentId)
+                ->where('is_active', true)
+                ->lockForUpdate()
+                ->first();
+
+            if (! $destination) {
+                throw ValidationException::withMessages([
+                    'department_id' => [
+                        'El departamento de destino ya no está activo.',
+                    ],
+                ]);
+            }
+
+            /*
+             * PASO 6: RECUPERAR CONCESIONES
+             * ACTIVAS Y BLOQUEARLAS
+             *
+             * Las revocadas previamente
+             * no deben modificarse.
+             */
+            $activeGrants = $lockedUser
+                ->accessGrants()
+                ->where('status', 'active')
+                ->orderBy('id')
+                ->lockForUpdate()
+                ->get();
+
+            /*
+             * PASO 7: ACTUALIZAR DEPARTAMENTO
+             *
+             * El servicio de elegibilidad
+             * evaluará el NUEVO departamento.
+             */
+            $lockedUser->department_id = $newDepartmentId;
+            $lockedUser->save();
+
+            $revokedCount = 0;
+
+            /*
+             * PASO 8: EVALUAR CADA CONCESIÓN
+             */
+            foreach ($activeGrants as $grant) {
+                $resource = $lockedResources->get(
+                    $grant->resource_id
+                );
+
+                /*
+                 * Si no podemos recuperar
+                 * un recurso, no continuamos
+                 * con un traslado parcial.
+                 */
+                if (! $resource) {
+                    abort(
+                        409,
+                        'No fue posible verificar uno de los recursos asignados.'
+                    );
+                }
+
+                /*
+                 * Evaluación centralizada.
+                 *
+                 * No se revoca simplemente por
+                 * haber cambiado de departamento.
+                 *
+                 * Se revoca únicamente si el
+                 * acceso dejó de ser elegible.
+                 */
+                $decision = $this->eligibility->evaluate(
+                    $lockedUser,
+                    $resource
+                );
+
+                if ($decision['eligible']) {
+                    continue;
+                }
+
+                /*
+                 * PASO 9: REVOCAR ACCESO
+                 */
+                $grant->forceFill([
+                    'status' => 'revoked',
+                    'revoked_by_user_id' => $actor->id,
+                    'revoked_at' => now(),
+                    'revocation_reason' =>
+                        'Revocación automática por cambio de departamento o pérdida de elegibilidad.',
+                ]);
+
+                $grant->save();
+
+                /*
+                 * PASO 10: AUDITAR REVOCACIÓN
+                 *
+                 * Reutilizamos AuditService.
+                 */
+                $this->audit->accessRevoked(
+                    $actor,
+                    $grant,
+                    $ipAddress
+                );
+
+                $revokedCount++;
+            }
+
+            /*
+             * PASO 11: AUDITAR MOVIMIENTO
+             *
+             * Se registra después de las
+             * revocaciones exitosas.
+             */
             $this->audit->identityMoved(
-                $request->user(),
-                $user,
+                $actor,
+                $lockedUser,
                 $previousDepartmentId,
                 $newDepartmentId,
-                $request->ip()
+                $ipAddress
             );
-        });
 
+            return [
+                'user' => $lockedUser,
+                'previous_department_id' =>
+                    $previousDepartmentId,
+                'revoked_count' => $revokedCount,
+            ];
+
+        }, 3);
+
+        /*
+         * RESPUESTA
+         *
+         * Conserva los datos anteriores
+         * y añade el número de revocaciones.
+         */
         return response()->json([
             'message' =>
                 'Departamento actualizado correctamente.',
             'data' => [
-                'id' => $user->id,
-                'name' => $user->name,
+                'id' => $result['user']->id,
+                'name' => $result['user']->name,
                 'previous_department_id' =>
-                    $previousDepartmentId,
-                'department_id' => $user->department_id,
+                    $result['previous_department_id'],
+                'department_id' =>
+                    $result['user']->department_id,
+                'revoked_access_grants_count' =>
+                    $result['revoked_count'],
             ],
         ]);
     }

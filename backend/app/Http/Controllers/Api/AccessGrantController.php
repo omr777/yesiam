@@ -7,23 +7,32 @@ use App\Models\AccessGrant;
 use App\Models\AccessRequest;
 use App\Models\Resource;
 use App\Models\User;
+use App\Services\AccessEligibilityService;
 use App\Services\AuditService;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Validation\ValidationException;
 
 class AccessGrantController extends Controller
 {
+    /*
+    |--------------------------------------------------------------------------
+    | DEPENDENCIAS
+    |--------------------------------------------------------------------------
+    */
+
     public function __construct(
-        private readonly AuditService $audit
+        private readonly AuditService $audit,
+        private readonly AccessEligibilityService $eligibility
     ) {
     }
 
     /*
     |--------------------------------------------------------------------------
-    | CONCEDER ACCESO A PARTIR DE UNA SOLICITUD APROBADA
+    | CONCEDER ACCESO DESDE UNA SOLICITUD APROBADA
     |--------------------------------------------------------------------------
     */
 
@@ -35,7 +44,7 @@ class AccessGrantController extends Controller
         /*
          * 1. AUTORIZACIÓN INICIAL
          *
-         * La política debe verificar:
+         * AccessGrantPolicy debe verificar:
          *
          * - Operador activo.
          * - Permiso access.grant.
@@ -50,13 +59,10 @@ class AccessGrantController extends Controller
         $actor = $request->user();
 
         /*
-         * 2. TRANSACCIÓN DE PROVISIONAMIENTO
+         * 2. TRANSACCIÓN
          *
          * La concesión y su auditoría deben
          * confirmarse juntas.
-         *
-         * Si algo falla, Laravel revierte
-         * los cambios de esta transacción.
          */
 
         try {
@@ -68,11 +74,7 @@ class AccessGrantController extends Controller
             ) {
 
                 /*
-                 * PASO 1: BLOQUEAR LA SOLICITUD
-                 *
-                 * Dos operaciones sobre una misma
-                 * solicitud no deben procesarse
-                 * simultáneamente.
+                 * PASO 1: BLOQUEAR SOLICITUD
                  */
 
                 $lockedRequest = AccessRequest::query()
@@ -81,11 +83,10 @@ class AccessGrantController extends Controller
                     ->firstOrFail();
 
                 /*
-                 * PASO 2: BLOQUEAR AL BENEFICIARIO
+                 * PASO 2: BLOQUEAR BENEFICIARIO
                  *
-                 * Este bloqueo ayuda a serializar
-                 * las concesiones del mismo usuario
-                 * cuando utilizan este flujo.
+                 * Consultar los valores actuales
+                 * de estado y departamento.
                  */
 
                 $beneficiary = User::query()
@@ -96,7 +97,10 @@ class AccessGrantController extends Controller
                     ->firstOrFail();
 
                 /*
-                 * PASO 3: BLOQUEAR EL RECURSO
+                 * PASO 3: BLOQUEAR RECURSO
+                 *
+                 * Consultar la configuración
+                 * actual del recurso.
                  */
 
                 $resource = Resource::query()
@@ -107,10 +111,10 @@ class AccessGrantController extends Controller
                     ->firstOrFail();
 
                 /*
-                 * PASO 4: ACTUALIZAR LAS RELACIONES
+                 * PASO 4: ACTUALIZAR RELACIONES
                  *
-                 * Proporcionamos a la política
-                 * los modelos bloqueados y actuales.
+                 * La política debe evaluar
+                 * los modelos actuales.
                  */
 
                 $lockedRequest->setRelation(
@@ -124,13 +128,10 @@ class AccessGrantController extends Controller
                 );
 
                 /*
-                 * PASO 5: REPETIR LA AUTORIZACIÓN
+                 * PASO 5: REPETIR AUTORIZACIÓN
                  *
-                 * No confiamos únicamente en
-                 * la comprobación inicial.
-                 *
-                 * Se verifica el estado después
-                 * de adquirir los bloqueos.
+                 * No confiamos solamente
+                 * en la comprobación inicial.
                  */
 
                 Gate::authorize(
@@ -139,7 +140,38 @@ class AccessGrantController extends Controller
                 );
 
                 /*
-                 * PASO 6: EVITAR CONCEDER
+                 * PASO 6: EVALUAR ELEGIBILIDAD
+                 *
+                 * NUEVO - FASE 17.5.3
+                 *
+                 * Aunque la solicitud ya
+                 * fue aprobada, verificamos
+                 * que el beneficiario todavía
+                 * cumpla las condiciones.
+                 *
+                 * Ejemplo:
+                 *
+                 * Finanzas -> Ventas
+                 *
+                 * Si el recurso solo permite
+                 * Finanzas, se rechaza grant.
+                 */
+
+                $decision = $this->eligibility->evaluate(
+                    $beneficiary,
+                    $resource
+                );
+
+                if (! $decision['eligible']) {
+                    throw ValidationException::withMessages([
+                        'access_request_id' => [
+                            'El beneficiario ya no cumple las condiciones de elegibilidad para recibir este recurso.',
+                        ],
+                    ]);
+                }
+
+                /*
+                 * PASO 7: EVITAR CONCEDER
                  * DOS VECES LA MISMA SOLICITUD
                  */
 
@@ -160,14 +192,12 @@ class AccessGrantController extends Controller
                 }
 
                 /*
-                 * PASO 7: EVITAR CONCESIONES
+                 * PASO 8: EVITAR CONCESIONES
                  * ACTIVAS DUPLICADAS
                  *
-                 * Comprobación a nivel de aplicación.
-                 *
-                 * El índice UNIQUE de MySQL,
-                 * creado en la Fase 15.1,
-                 * proporciona protección adicional.
+                 * Además de esta consulta,
+                 * MySQL protege la unicidad
+                 * mediante su índice UNIQUE.
                  */
 
                 $existingActiveGrant = AccessGrant::query()
@@ -195,14 +225,16 @@ class AccessGrantController extends Controller
                 }
 
                 /*
-                 * PASO 8: CREAR LA CONCESIÓN
+                 * PASO 9: CREAR CONCESIÓN
                  *
-                 * Los datos sensibles se establecen
-                 * desde el backend.
+                 * Los atributos sensibles
+                 * son establecidos por YESIAM.
                  *
-                 * No aceptamos user_id,
-                 * granted_by_user_id ni status
-                 * enviados por el cliente.
+                 * No se aceptan del cliente:
+                 *
+                 * - user_id
+                 * - granted_by_user_id
+                 * - status
                  */
 
                 $newGrant = new AccessGrant();
@@ -228,31 +260,26 @@ class AccessGrantController extends Controller
                 ]);
 
                 /*
-                 * MySQL comprobará sus restricciones
-                 * UNIQUE durante esta inserción.
-                 *
-                 * Si detecta un duplicado, Laravel
-                 * lanzará una excepción específica.
+                 * MySQL aplica sus restricciones
+                 * de integridad y unicidad.
                  */
 
                 $newGrant->save();
 
                 /*
-                 * PASO 9: RECUPERAR EL REGISTRO
-                 * CON LOS VALORES DEFINITIVOS
+                 * PASO 10: RECUPERAR REGISTRO
                  */
 
                 $newGrant->refresh();
 
                 /*
-                 * PASO 10: REGISTRAR AUDITORÍA
+                 * PASO 11: AUDITORÍA
                  *
-                 * El evento se crea dentro
-                 * de la misma transacción.
+                 * Solo registramos el acceso
+                 * efectivamente concedido.
                  *
-                 * Si la concesión falla,
-                 * no debe quedar una auditoría
-                 * falsa de acceso concedido.
+                 * La operación se revierte
+                 * si esta escritura falla.
                  */
 
                 $this->audit->accessGranted(
@@ -269,41 +296,23 @@ class AccessGrantController extends Controller
         } catch (UniqueConstraintViolationException $exception) {
 
             /*
-             * 3. MANEJAR CONFLICTOS DE UNICIDAD
+             * 3. MANEJO DE CONFLICTOS UNIQUE
              *
-             * Laravel identifica las violaciones
-             * de restricciones UNIQUE.
+             * Conservamos las protecciones
+             * establecidas en la Fase 15.
              *
-             * Solo convertimos a HTTP 409
-             * los índices relacionados con
-             * una concesión duplicada.
-             *
-             * Nunca devolvemos mensajes SQL
+             * Nunca exponemos mensajes SQL
              * directamente al cliente.
              */
 
             $conflictIndexes = [
-
-                /*
-                 * Restricción de la Fase 15.1:
-                 *
-                 * Un único acceso activo
-                 * por usuario y recurso.
-                 */
                 'access_grants_unique_active_user_resource',
-
-                /*
-                 * Restricción original:
-                 *
-                 * Una concesión por solicitud.
-                 */
                 'access_grants_access_request_id_unique',
             ];
 
             /*
-             * Si la violación corresponde
-             * a otro índice, o Laravel no pudo
-             * identificarlo, no ocultamos el error.
+             * Si el error corresponde a otro
+             * índice, no debemos ocultarlo.
              */
 
             if (! in_array(
@@ -314,14 +323,6 @@ class AccessGrantController extends Controller
                 throw $exception;
             }
 
-            /*
-             * Conflicto de negocio:
-             *
-             * La operación no puede completarse
-             * porque ya existe una concesión
-             * incompatible con la nueva.
-             */
-
             return response()->json([
                 'message' =>
                     'El acceso ya fue concedido o existe una concesión activa para este recurso.',
@@ -331,13 +332,13 @@ class AccessGrantController extends Controller
         /*
          * 4. RESPUESTA EXITOSA
          *
-         * Solo llegamos aquí si:
+         * Solo llegamos aquí cuando:
          *
          * - La autorización fue válida.
-         * - No se encontró un duplicado.
+         * - El beneficiario es elegible.
+         * - No existen duplicados.
          * - MySQL aceptó la concesión.
          * - Se registró la auditoría.
-         * - La transacción se confirmó.
          */
 
         return response()->json([

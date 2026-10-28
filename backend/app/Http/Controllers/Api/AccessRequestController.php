@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\AccessRequest;
 use App\Models\Resource;
+use App\Models\User;
+use App\Services\AccessEligibilityService;
 use App\Services\AuditService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -17,24 +19,28 @@ class AccessRequestController extends Controller
 {
     /*
     |--------------------------------------------------------------------------
-    | SERVICIO DE AUDITORÍA
+    | DEPENDENCIAS
     |--------------------------------------------------------------------------
     */
 
     public function __construct(
-        private readonly AuditService $audit
+        private readonly AuditService $audit,
+        private readonly AccessEligibilityService $eligibility
     ) {
     }
 
     /*
     |--------------------------------------------------------------------------
-    | CONSULTAR MIS PROPIAS SOLICITUDES
+    | CONSULTAR MIS SOLICITUDES
     |--------------------------------------------------------------------------
     */
 
     public function index(Request $request): JsonResponse
     {
-        Gate::authorize('viewAny', AccessRequest::class);
+        Gate::authorize(
+            'viewAny',
+            AccessRequest::class
+        );
 
         $requests = AccessRequest::query()
             ->where(
@@ -53,62 +59,68 @@ class AccessRequestController extends Controller
 
     /*
     |--------------------------------------------------------------------------
-    | CONSULTAR SOLICITUDES PENDIENTES ASIGNADAS
+    | BANDEJA DE SOLICITUDES ASIGNADAS
     |--------------------------------------------------------------------------
+    |
+    | Solamente muestra solicitudes:
+    |
+    | - Pendientes.
+    | - De otros usuarios.
+    | - Con solicitantes activos.
+    | - Con recursos activos.
+    | - De recursos asignados al responsable.
+    |
     */
 
     public function assigned(Request $request): JsonResponse
     {
-        // 1. Autorizar mediante AccessRequestPolicy.
         Gate::authorize(
             'viewAssigned',
             AccessRequest::class
         );
 
-        // 2. Identificar al responsable autenticado.
         $actor = $request->user();
 
-        /*
-         * 3. Buscar exclusivamente solicitudes pendientes
-         * de recursos que el usuario administra.
-         */
         $requests = AccessRequest::query()
             ->where('status', 'pending')
+            ->where(
+                'requester_user_id',
+                '!=',
+                $actor->id
+            )
+            ->whereHas(
+                'requester',
+                function ($query) {
+                    $query->where(
+                        'status',
+                        'active'
+                    );
+                }
+            )
+            ->whereHas(
+                'resource',
+                function ($query) use ($actor) {
+                    $query->where(
+                        'is_active',
+                        true
+                    );
 
-            // Evitar mostrar solicitudes propias.
-            ->where('requester_user_id', '!=', $actor->id)
-
-            // Solo solicitantes con cuentas activas.
-            ->whereHas('requester', function ($query) {
-                $query->where('status', 'active');
-            })
-
-            // Solo recursos activos asignados al responsable.
-            ->whereHas('resource', function ($query) use ($actor) {
-                $query->where('is_active', true);
-
-                $query->whereHas(
-                    'approvers',
-                    function ($approvers) use ($actor) {
-                        $approvers->where(
-                            'users.id',
-                            $actor->id
-                        );
-                    }
-                );
-            })
-
-            // Información necesaria para revisar solicitudes.
+                    $query->whereHas(
+                        'approvers',
+                        function ($approverQuery) use ($actor) {
+                            $approverQuery->whereKey(
+                                $actor->id
+                            );
+                        }
+                    );
+                }
+            )
             ->with([
-                'requester:id,name,status',
-                'resource:id,name,code,is_active',
+                'requester',
+                'resource',
             ])
-
-            // Ordenar primero las solicitudes recientes.
             ->orderByDesc('created_at')
             ->orderByDesc('id')
-
-            // Limitar el volumen de resultados.
             ->paginate(20);
 
         return response()->json($requests);
@@ -118,20 +130,42 @@ class AccessRequestController extends Controller
     |--------------------------------------------------------------------------
     | CREAR SOLICITUD DE ACCESO
     |--------------------------------------------------------------------------
+    |
+    | FASE 17.7 - ORDEN DE BLOQUEOS
+    |
+    | Protocolo:
+    |
+    | 1. Autorizar y validar entrada.
+    | 2. Bloquear usuario.
+    | 3. Bloquear recurso.
+    | 4. Comprobar elegibilidad.
+    | 5. Evitar solicitudes pendientes duplicadas.
+    | 6. Crear solicitud.
+    | 7. Auditar la operación.
+    |
     */
 
     public function store(Request $request): JsonResponse
     {
-        // 1. Verificar permiso para solicitar acceso.
-        Gate::authorize('create', AccessRequest::class);
+        /*
+         * 1. AUTORIZACIÓN RBAC
+         */
+        Gate::authorize(
+            'create',
+            AccessRequest::class
+        );
 
-        // 2. Validar los campos recibidos.
+        /*
+         * 2. VALIDACIÓN INICIAL
+         */
         $validated = $request->validate([
             'resource_id' => [
                 'required',
                 'integer',
-                Rule::exists('resources', 'id')
-                    ->where('is_active', true),
+                Rule::exists(
+                    'resources',
+                    'id'
+                )->where('is_active', true),
             ],
             'justification' => [
                 'required',
@@ -141,23 +175,62 @@ class AccessRequestController extends Controller
             ],
         ]);
 
-        // 3. Obtener la identidad autenticada.
         $actor = $request->user();
 
         /*
-        |--------------------------------------------------------------------------
-        | TRANSACCIÓN: SOLICITUD + AUDITORÍA
-        |--------------------------------------------------------------------------
-        */
-
+         * 3. TRANSACCIÓN
+         *
+         * El parámetro 3 permite a Laravel
+         * reintentar determinadas fallas
+         * de concurrencia, como deadlocks.
+         *
+         * No sustituye la necesidad de
+         * mantener bloqueos consistentes.
+         */
         $accessRequest = DB::transaction(function () use (
             $validated,
             $actor,
             $request
         ) {
-            // 4. Bloquear y comprobar el recurso.
+            /*
+             * PASO 1: BLOQUEAR USUARIO
+             *
+             * ORDEN UNIFICADO:
+             *
+             * User -> Resource
+             *
+             * Coordinamos esta operación
+             * con Mover y Leaver.
+             */
+            $currentUser = User::query()
+                ->whereKey($actor->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            /*
+             * PASO 2: REVALIDAR IDENTIDAD
+             *
+             * No podemos confiar únicamente
+             * en el estado observado antes
+             * de iniciar la transacción.
+             */
+            if ($currentUser->status !== 'active') {
+                abort(
+                    403,
+                    'La identidad no está activa.'
+                );
+            }
+
+            /*
+             * PASO 3: BLOQUEAR RECURSO
+             *
+             * Se adquiere después del bloqueo
+             * del usuario.
+             */
             $resource = Resource::query()
-                ->whereKey($validated['resource_id'])
+                ->whereKey(
+                    $validated['resource_id']
+                )
                 ->where('is_active', true)
                 ->lockForUpdate()
                 ->first();
@@ -170,11 +243,46 @@ class AccessRequestController extends Controller
                 ]);
             }
 
-            // 5. Impedir solicitudes pendientes duplicadas.
+            /*
+             * PASO 4: ELEGIBILIDAD ACTUAL
+             *
+             * Verificamos el estado actual
+             * del usuario y del recurso.
+             */
+            $decision = $this->eligibility->evaluate(
+                $currentUser,
+                $resource
+            );
+
+            if (! $decision['eligible']) {
+                throw ValidationException::withMessages([
+                    'resource_id' => [
+                        'No cumples las condiciones de elegibilidad para solicitar este recurso.',
+                    ],
+                ]);
+            }
+
+            /*
+             * PASO 5: PREVENIR DUPLICADOS
+             *
+             * El bloqueo del usuario ayuda
+             * a serializar las solicitudes
+             * de este usuario que respetan
+             * el mismo protocolo.
+             */
             $alreadyPending = AccessRequest::query()
-                ->where('requester_user_id', $actor->id)
-                ->where('resource_id', $resource->id)
-                ->where('status', 'pending')
+                ->where(
+                    'requester_user_id',
+                    $currentUser->id
+                )
+                ->where(
+                    'resource_id',
+                    $resource->id
+                )
+                ->where(
+                    'status',
+                    'pending'
+                )
                 ->exists();
 
             if ($alreadyPending) {
@@ -185,28 +293,41 @@ class AccessRequestController extends Controller
                 ]);
             }
 
-            // 6. Crear la solicitud.
+            /*
+             * PASO 6: CREAR SOLICITUD
+             */
             $newRequest = AccessRequest::create([
-                'requester_user_id' => $actor->id,
+                'requester_user_id' => $currentUser->id,
                 'resource_id' => $resource->id,
-                'justification' => $validated['justification'],
+                'justification' =>
+                    $validated['justification'],
             ]);
 
-            // 7. Recuperar el estado asignado por MySQL.
             $newRequest->refresh();
 
-            // 8. Registrar la operación en auditoría.
+            /*
+             * PASO 7: AUDITORÍA
+             *
+             * Si falla el registro de auditoría,
+             * se revierte toda la transacción.
+             */
             $this->audit->accessRequested(
-                $actor,
+                $currentUser,
                 $newRequest,
                 $request->ip()
             );
 
             return $newRequest;
-        });
 
+        }, 3);
+
+        /*
+         * RESPUESTA EXITOSA
+         */
         return response()->json([
-            'message' => 'Solicitud de acceso creada correctamente.',
+            'message' =>
+                'Solicitud de acceso creada correctamente.',
+
             'data' => $accessRequest->load(
                 'resource:id,name,code,is_active'
             ),
