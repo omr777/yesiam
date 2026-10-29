@@ -63,6 +63,21 @@ class AccessDecisionController extends Controller
     |--------------------------------------------------------------------------
     | PROCESAR DECISIÓN
     |--------------------------------------------------------------------------
+    |
+    | FASE 18.1.1
+    |
+    | Protocolo de bloqueos:
+    |
+    | 1. AccessRequest
+    | 2. User (solicitante)
+    | 3. Resource
+    |
+    | Este orden es compatible con el utilizado
+    | actualmente por AccessGrantController.
+    |
+    | La decisión y su auditoría permanecen
+    | dentro de una única transacción.
+    |
     */
 
     private function decide(
@@ -71,10 +86,20 @@ class AccessDecisionController extends Controller
         string $decision
     ): JsonResponse {
 
-        // 1. Autorizar antes de procesar los datos.
-        Gate::authorize('decide', $accessRequest);
+        /*
+         * 1. AUTORIZACIÓN INICIAL
+         */
+        Gate::authorize(
+            'decide',
+            $accessRequest
+        );
 
-        // 2. Exigir un motivo para ambas decisiones.
+        /*
+         * 2. VALIDAR MOTIVO
+         *
+         * El motivo es obligatorio tanto
+         * para aprobar como para rechazar.
+         */
         $validated = $request->validate([
             'decision_reason' => [
                 'required',
@@ -84,7 +109,9 @@ class AccessDecisionController extends Controller
             ],
         ]);
 
-        // 3. Obtener al responsable autenticado.
+        /*
+         * 3. RESPONSABLE AUTENTICADO
+         */
         $actor = $request->user();
 
         /*
@@ -102,10 +129,13 @@ class AccessDecisionController extends Controller
         ) {
 
             /*
-             * 4. Bloquear la solicitud.
+             * 4. BLOQUEAR SOLICITUD
              *
-             * Impide que dos responsables modifiquen
-             * simultáneamente la misma solicitud.
+             * Primera entidad del protocolo.
+             *
+             * Dos responsables no deben decidir
+             * simultáneamente sobre la misma
+             * solicitud utilizando estados antiguos.
              */
             $lockedRequest = AccessRequest::query()
                 ->whereKey($accessRequest->id)
@@ -113,25 +143,49 @@ class AccessDecisionController extends Controller
                 ->firstOrFail();
 
             /*
-             * 5. Bloquear el recurso relacionado
-             * y recuperar su estado actualizado.
-             */
-            $resource = Resource::query()
-                ->whereKey($lockedRequest->resource_id)
-                ->lockForUpdate()
-                ->firstOrFail();
-
-            /*
-             * 6. Bloquear la identidad solicitante.
+             * 5. BLOQUEAR IDENTIDAD SOLICITANTE
+             *
+             * FASE 18.1.1
+             *
+             * CORRECCIÓN:
+             *
+             * El usuario se bloquea ANTES
+             * del recurso.
+             *
+             * Orden:
+             *
+             * AccessRequest -> User -> Resource
+             *
+             * Evitamos invertir el orden
+             * utilizado en AccessGrantController.
              */
             $requester = User::query()
-                ->whereKey($lockedRequest->requester_user_id)
+                ->whereKey(
+                    $lockedRequest->requester_user_id
+                )
                 ->lockForUpdate()
                 ->firstOrFail();
 
             /*
-             * 7. Actualizar las relaciones que revisa
-             * nuestra AccessRequestPolicy.
+             * 6. BLOQUEAR RECURSO
+             *
+             * Recuperamos el estado actual
+             * después de bloquear al usuario.
+             */
+            $resource = Resource::query()
+                ->whereKey(
+                    $lockedRequest->resource_id
+                )
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            /*
+             * 7. ACTUALIZAR RELACIONES
+             *
+             * La política de solicitudes
+             * debe evaluar las entidades
+             * recuperadas dentro de la
+             * transacción.
              */
             $lockedRequest->setRelation(
                 'resource',
@@ -144,32 +198,52 @@ class AccessDecisionController extends Controller
             );
 
             /*
-             * 8. Volver a autorizar con información
-             * actualizada dentro de la transacción.
+             * 8. REVALIDAR AUTORIZACIÓN
+             *
+             * La solicitud puede haber cambiado
+             * de estado mientras esperábamos
+             * adquirir sus bloqueos.
+             *
+             * La política se ejecuta otra vez
+             * con la solicitud y sus relaciones
+             * actualizadas.
              */
-            Gate::authorize('decide', $lockedRequest);
+            Gate::authorize(
+                'decide',
+                $lockedRequest
+            );
 
             /*
-             * 9. Guardar exclusivamente los campos
-             * controlados por nuestro backend.
+             * 9. APLICAR DECISIÓN
+             *
+             * Los valores de estado, responsable
+             * y fecha los establece el backend.
              */
             $lockedRequest->forceFill([
                 'status' => $decision,
-                'decided_by_user_id' => $actor->id,
-                'decision_reason' => $validated['decision_reason'],
+
+                'decided_by_user_id' =>
+                    $actor->id,
+
+                'decision_reason' =>
+                    $validated['decision_reason'],
+
                 'decided_at' => now(),
             ])->save();
 
             /*
-             * 10. Actualizar el objeto.
+             * 10. RECUPERAR VALORES DEFINITIVOS
              */
             $lockedRequest->refresh();
 
             /*
-             * 11. Registrar la decisión.
+             * 11. AUDITORÍA
              *
-             * Este método se implementará en
-             * AuditService en el siguiente paso.
+             * Conservamos el servicio existente.
+             *
+             * Si falla la auditoría,
+             * la transacción revierte también
+             * la decisión.
              */
             $this->audit->accessDecisionRecorded(
                 $actor,
@@ -178,11 +252,12 @@ class AccessDecisionController extends Controller
             );
 
             return $lockedRequest;
+
         }, 3);
 
         /*
         |--------------------------------------------------------------------------
-        | RESPUESTA
+        | RESPUESTA HTTP
         |--------------------------------------------------------------------------
         */
 

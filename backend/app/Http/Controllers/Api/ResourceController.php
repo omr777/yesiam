@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\AccessGrant;
 use App\Models\Resource;
 use App\Services\AuditService;
 use Illuminate\Http\JsonResponse;
@@ -13,6 +14,12 @@ use Illuminate\Validation\Rule;
 
 class ResourceController extends Controller
 {
+    /*
+    |--------------------------------------------------------------------------
+    | SERVICIO DE AUDITORÍA
+    |--------------------------------------------------------------------------
+    */
+
     public function __construct(
         private readonly AuditService $audit
     ) {
@@ -87,15 +94,14 @@ class ResourceController extends Controller
             $request,
             $validated
         ) {
-            // 1. Crear el recurso.
             $resource = Resource::create([
                 'name' => $validated['name'],
                 'code' => $validated['code'],
-                'description' => $validated['description'] ?? null,
+                'description' =>
+                    $validated['description'] ?? null,
                 'is_active' => true,
             ]);
 
-            // 2. Registrar su creación en auditoría.
             $this->audit->resourceCreated(
                 $request->user(),
                 $resource,
@@ -103,7 +109,7 @@ class ResourceController extends Controller
             );
 
             return $resource;
-        });
+        }, 3);
 
         return response()->json([
             'message' => 'Recurso creado correctamente.',
@@ -115,6 +121,12 @@ class ResourceController extends Controller
     |--------------------------------------------------------------------------
     | ACTUALIZAR RECURSO
     |--------------------------------------------------------------------------
+    |
+    | FASE 18
+    |
+    | Recuperamos el recurso bajo bloqueo
+    | antes de calcular y guardar cambios.
+    |
     */
 
     public function update(
@@ -147,55 +159,83 @@ class ResourceController extends Controller
             ],
         ]);
 
-        DB::transaction(function () use (
+        $updatedResource = DB::transaction(function () use (
             $request,
             $resource,
             $validated
         ) {
-            // 1. Guardar los valores anteriores.
-            $before = $resource->only([
+            /*
+             * 1. Bloquear el registro actual.
+             */
+            $lockedResource = Resource::query()
+                ->whereKey($resource->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            /*
+             * 2. Repetir la autorización
+             * usando el modelo actualizado.
+             */
+            Gate::authorize(
+                'update',
+                $lockedResource
+            );
+
+            /*
+             * 3. Conservar los valores
+             * anteriores reales.
+             */
+            $before = $lockedResource->only([
                 'name',
                 'code',
             ]);
 
-            // 2. Preparar los nuevos valores.
-            $resource->fill($validated);
+            /*
+             * 4. Preparar los cambios.
+             */
+            $lockedResource->fill($validated);
 
             $changes = [];
 
-            // 3. Detectar cambios de nombre y código.
             foreach (['name', 'code'] as $field) {
-                if ($resource->isDirty($field)) {
+                if ($lockedResource->isDirty($field)) {
                     $changes[$field] = [
                         'old' => $before[$field],
-                        'new' => $resource->{$field},
+                        'new' => $lockedResource->{$field},
                     ];
                 }
             }
 
-            // Registrar que cambió la descripción
-            // sin guardar su contenido en auditoría.
-            if ($resource->isDirty('description')) {
+            /*
+             * No almacenar la descripción
+             * completa en la auditoría.
+             */
+            if ($lockedResource->isDirty('description')) {
                 $changes['description_changed'] = true;
             }
 
-            // 4. Persistir únicamente si hubo cambios.
+            /*
+             * 5. Escribir y auditar
+             * únicamente cambios reales.
+             */
             if ($changes !== []) {
-                $resource->save();
+                $lockedResource->save();
 
-                // 5. Registrar los cambios en auditoría.
                 $this->audit->resourceUpdated(
                     $request->user(),
-                    $resource,
+                    $lockedResource,
                     $changes,
                     $request->ip()
                 );
             }
-        });
+
+            return $lockedResource;
+
+        }, 3);
 
         return response()->json([
             'message' => 'Recurso actualizado correctamente.',
-            'data' => $resource->fresh(),
+            'data' => $updatedResource->fresh(),
         ]);
     }
 
@@ -203,34 +243,172 @@ class ResourceController extends Controller
     |--------------------------------------------------------------------------
     | DESACTIVAR RECURSO
     |--------------------------------------------------------------------------
+    |
+    | FASE 18 - REVOCACIÓN AUTOMÁTICA
+    |
+    | 1. Autorizar operación.
+    | 2. Bloquear recurso.
+    | 3. Revalidar autorización y estado.
+    | 4. Bloquear concesiones activas.
+    | 5. Revocar cada concesión.
+    | 6. Auditar cada revocación.
+    | 7. Desactivar recurso.
+    | 8. Auditar desactivación.
+    |
+    | Toda la operación es transaccional.
+    |
     */
 
     public function deactivate(
         Request $request,
         Resource $resource
     ): JsonResponse {
-        Gate::authorize('deactivate', $resource);
-
-        DB::transaction(function () use (
-            $request,
+        /*
+         * 1. AUTORIZACIÓN INICIAL
+         */
+        Gate::authorize(
+            'deactivate',
             $resource
+        );
+
+        $actor = $request->user();
+        $ipAddress = $request->ip();
+
+        /*
+         * 2. TRANSACCIÓN
+         *
+         * El recurso y las concesiones
+         * se modifican de forma atómica.
+         */
+        $result = DB::transaction(function () use (
+            $resource,
+            $actor,
+            $ipAddress
         ) {
-            // 1. Desactivar el recurso.
-            $resource->update([
-                'is_active' => false,
-            ]);
+            /*
+             * PASO 1: BLOQUEAR RECURSO
+             *
+             * AccessGrantController también
+             * bloquea el recurso antes de
+             * confirmar una concesión.
+             */
+            $lockedResource = Resource::query()
+                ->whereKey($resource->id)
+                ->lockForUpdate()
+                ->firstOrFail();
 
-            // 2. Registrar quién lo desactivó.
-            $this->audit->resourceDeactivated(
-                $request->user(),
-                $resource,
-                $request->ip()
+            /*
+             * PASO 2: REVALIDAR AUTORIZACIÓN
+             */
+            Gate::authorize(
+                'deactivate',
+                $lockedResource
             );
-        });
 
+            /*
+             * PASO 3: REVALIDAR ESTADO
+             *
+             * Evitamos procesar dos veces
+             * una desactivación.
+             */
+            if (! $lockedResource->is_active) {
+                abort(
+                    409,
+                    'Este recurso ya está desactivado.'
+                );
+            }
+
+            /*
+             * PASO 4: BLOQUEAR CONCESIONES
+             *
+             * Solo procesamos concesiones
+             * que actualmente están activas.
+             *
+             * El orden por ID facilita
+             * mantener un recorrido estable.
+             */
+            $activeGrants = AccessGrant::query()
+                ->where(
+                    'resource_id',
+                    $lockedResource->id
+                )
+                ->where('status', 'active')
+                ->orderBy('id')
+                ->lockForUpdate()
+                ->get();
+
+            $revokedCount = 0;
+
+            /*
+             * PASO 5: REVOCAR CONCESIONES
+             */
+            foreach ($activeGrants as $grant) {
+                $grant->forceFill([
+                    'status' => 'revoked',
+
+                    'revoked_by_user_id' =>
+                        $actor->id,
+
+                    'revoked_at' => now(),
+
+                    'revocation_reason' =>
+                        'Revocación automática por desactivación del recurso.',
+                ]);
+
+                $grant->save();
+
+                /*
+                 * PASO 6: AUDITAR REVOCACIÓN
+                 *
+                 * Reutilizamos AuditService.
+                 *
+                 * Si falla esta auditoría,
+                 * se revierte la transacción.
+                 */
+                $this->audit->accessRevoked(
+                    $actor,
+                    $grant,
+                    $ipAddress
+                );
+
+                $revokedCount++;
+            }
+
+            /*
+             * PASO 7: DESACTIVAR RECURSO
+             */
+            $lockedResource->forceFill([
+                'is_active' => false,
+            ])->save();
+
+            /*
+             * PASO 8: AUDITAR DESACTIVACIÓN
+             */
+            $this->audit->resourceDeactivated(
+                $actor,
+                $lockedResource,
+                $ipAddress
+            );
+
+            return [
+                'resource' => $lockedResource,
+                'revoked_count' => $revokedCount,
+            ];
+
+        }, 3);
+
+        /*
+         * RESPUESTA
+         *
+         * Conservamos el objeto 'data'
+         * y añadimos el número de accesos
+         * automáticamente revocados.
+         */
         return response()->json([
             'message' => 'Recurso desactivado correctamente.',
-            'data' => $resource->fresh(),
+            'data' => $result['resource']->fresh(),
+            'revoked_access_grants_count' =>
+                $result['revoked_count'],
         ]);
     }
 }

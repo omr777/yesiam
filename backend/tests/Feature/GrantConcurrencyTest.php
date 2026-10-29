@@ -5,54 +5,62 @@ namespace Tests\Feature;
 use App\Models\AccessRequest;
 use App\Models\Resource;
 use App\Models\User;
-use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
 use RuntimeException;
 use Symfony\Component\Process\Process;
 use Tests\TestCase;
 
 class GrantConcurrencyTest extends TestCase
 {
-    use DatabaseMigrations;
-
     /*
     |--------------------------------------------------------------------------
-    | PROTECCIÓN DE LA BASE DE DATOS
+    | FASE 18 - CONCURRENCIA SIN MIGRACIONES DESTRUCTIVAS
     |--------------------------------------------------------------------------
     |
-    | DatabaseMigrations ejecuta migrate:fresh.
+    | No usamos DatabaseMigrations ni RefreshDatabase.
     |
-    | Por seguridad, bloqueamos la ejecución
-    | antes de modificar cualquier base distinta
-    | de yesiam_test.
+    | Los procesos externos necesitan acceder
+    | a registros previamente confirmados.
     |
-    */
-
-    protected function beforeRefreshingDatabase(): void
-    {
-        if (
-            config('database.default') !== 'mysql'
-            || DB::connection()->getDatabaseName() !== 'yesiam_test'
-        ) {
-            throw new RuntimeException(
-                'Prueba detenida: debes utilizar MySQL y la base yesiam_test.'
-            );
-        }
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | PRUEBA: DOS CONCESIONES SIMULTÁNEAS
-    |--------------------------------------------------------------------------
+    | Esta prueba crea y elimina exclusivamente
+    | sus propios registros temporales.
+    |
     */
 
     public function test_two_simultaneous_inserts_cannot_create_duplicate_active_access(): void
     {
         /*
-         * 1. Comprobar que existe el índice
-         * de seguridad creado en la Fase 15.1.
+         * 1. VERIFICAR LA BASE REAL
+         *
+         * Comprobamos la conexión activa antes
+         * de crear cualquier registro.
          */
+        $connection = DB::connection();
+
+        $this->assertSame(
+            'mysql',
+            $connection->getDriverName()
+        );
+
+        $this->assertSame(
+            'yesiam_test',
+            $connection->selectOne(
+                'SELECT DATABASE() AS name'
+            )->name,
+            'SEGURIDAD: esta prueba solo puede ejecutarse en yesiam_test.'
+        );
+
+        /*
+         * 2. VERIFICAR ESQUEMA E ÍNDICE
+         *
+         * No ejecutamos migraciones destructivas.
+         */
+        $this->assertTrue(
+            Schema::hasTable('access_grants'),
+            'No existe el esquema de pruebas.'
+        );
 
         $this->assertTrue(
             Schema::hasIndex(
@@ -62,104 +70,114 @@ class GrantConcurrencyTest extends TestCase
             'Falta el índice UNIQUE de concesiones activas.'
         );
 
-        /*
-         * 2. Crear identidades de prueba.
-         *
-         * No necesitamos roles porque
-         * vamos a probar directamente MySQL,
-         * sin pasar por la API.
-         */
+        $admin = null;
+        $employee = null;
+        $approver = null;
+        $resource = null;
 
-        $admin = User::factory()->create([
-            'status' => 'active',
-        ]);
+        $folder = null;
+        $processA = null;
+        $processB = null;
 
-        $employee = User::factory()->create([
-            'status' => 'active',
-        ]);
+        try {
+            /*
+             * 3. CREAR IDENTIDADES TEMPORALES
+             *
+             * No necesitamos roles porque
+             * probaremos la restricción UNIQUE
+             * directamente en MySQL.
+             */
+            $admin = User::factory()->create([
+                'status' => 'active',
+            ]);
 
-        $approver = User::factory()->create([
-            'status' => 'active',
-        ]);
+            $employee = User::factory()->create([
+                'status' => 'active',
+            ]);
 
-        /*
-         * 3. Crear el recurso compartido.
-         */
+            $approver = User::factory()->create([
+                'status' => 'active',
+            ]);
 
-        $resource = Resource::create([
-            'name' => 'VPN simultánea',
-            'code' => 'VPN-RACE',
-            'description' => 'Recurso para pruebas concurrentes',
-            'is_active' => true,
-        ]);
-
-        /*
-         * 4. Crear dos solicitudes aprobadas
-         * para el mismo usuario y recurso.
-         *
-         * Son solicitudes distintas,
-         * por lo que no violan el UNIQUE
-         * de access_request_id.
-         */
-
-        $firstRequest = $this->makeApprovedRequest(
-            $employee,
-            $resource,
-            $approver
-        );
-
-        $secondRequest = $this->makeApprovedRequest(
-            $employee,
-            $resource,
-            $approver
-        );
-
-        /*
-         * 5. Crear una carpeta temporal
-         * para sincronizar ambos procesos.
-         */
-
-        $folder = sys_get_temp_dir()
-            . DIRECTORY_SEPARATOR
-            . 'yesiam-race-'
-            . bin2hex(random_bytes(8));
-
-        if (! mkdir($folder, 0700)) {
-            throw new RuntimeException(
-                'No fue posible crear la carpeta temporal.'
+            /*
+             * 4. CREAR RECURSO ÚNICO
+             *
+             * El sufijo evita colisiones
+             * entre distintas ejecuciones.
+             */
+            $suffix = Str::upper(
+                Str::random(12)
             );
-        }
 
-        $gate = $folder
-            . DIRECTORY_SEPARATOR
-            . 'start.flag';
+            $resource = Resource::create([
+                'name' => 'VPN simultánea ' . $suffix,
+                'code' => 'VPN-RACE-' . $suffix,
+                'description' =>
+                    'Recurso temporal de concurrencia',
+                'is_active' => true,
+            ]);
 
-        $readyA = $folder
-            . DIRECTORY_SEPARATOR
-            . 'worker-a.ready';
+            /*
+             * 5. CREAR DOS SOLICITUDES APROBADAS
+             *
+             * Ambas corresponden al mismo
+             * empleado y al mismo recurso.
+             *
+             * Las solicitudes tienen IDs
+             * diferentes.
+             */
+            $firstRequest = $this->makeApprovedRequest(
+                $employee,
+                $resource,
+                $approver
+            );
 
-        $readyB = $folder
-            . DIRECTORY_SEPARATOR
-            . 'worker-b.ready';
+            $secondRequest = $this->makeApprovedRequest(
+                $employee,
+                $resource,
+                $approver
+            );
 
-        /*
-         * 6. Código que ejecutará cada
-         * proceso PHP independiente.
-         *
-         * Cada trabajador:
-         *
-         * - Abre su propia conexión PDO.
-         * - Espera a que ambos estén listos.
-         * - Inicia una transacción.
-         * - Intenta crear la concesión.
-         * - Confirma o revierte la transacción.
-         *
-         * Los trabajadores no cargan Laravel.
-         * Así comprobamos la garantía
-         * directamente en MySQL.
-         */
+            /*
+             * 6. PREPARAR BARRERA DE SINCRONIZACIÓN
+             *
+             * Los dos procesos esperarán
+             * hasta recibir una señal común.
+             */
+            $folder = sys_get_temp_dir()
+                . DIRECTORY_SEPARATOR
+                . 'yesiam-race-'
+                . bin2hex(random_bytes(8));
 
-        $workerCode = <<<'WORKER'
+            if (! mkdir($folder, 0700)) {
+                throw new RuntimeException(
+                    'No fue posible crear la carpeta temporal.'
+                );
+            }
+
+            $gate = $folder
+                . DIRECTORY_SEPARATOR
+                . 'start.flag';
+
+            $readyA = $folder
+                . DIRECTORY_SEPARATOR
+                . 'worker-a.ready';
+
+            $readyB = $folder
+                . DIRECTORY_SEPARATOR
+                . 'worker-b.ready';
+
+            /*
+             * 7. CÓDIGO DE LOS TRABAJADORES
+             *
+             * Cada trabajador utiliza PDO
+             * y una conexión independiente.
+             *
+             * Ambos intentarán insertar
+             * una concesión activa para
+             * el mismo usuario y recurso.
+             */
+            $workerCode = <<<'WORKER'
 $pdo = null;
 
 try {
@@ -182,14 +200,28 @@ try {
     );
 
     /*
-     * Evitar esperas excesivas ante bloqueos.
+     * Verificar la base de datos real
+     * utilizada por el trabajador.
+     */
+    if (
+        $pdo->query(
+            'SELECT DATABASE()'
+        )->fetchColumn() !== 'yesiam_test'
+    ) {
+        throw new RuntimeException(
+            'Conexión de trabajador fuera de yesiam_test.'
+        );
+    }
+
+    /*
+     * Limitar la espera por bloqueos.
      */
     $pdo->exec(
         'SET SESSION innodb_lock_wait_timeout = 10'
     );
 
     /*
-     * Avisar que la conexión está preparada.
+     * Avisar que la conexión está lista.
      */
     if (
         file_put_contents(
@@ -203,12 +235,15 @@ try {
     }
 
     /*
-     * Esperar hasta que el proceso principal
-     * permita comenzar las inserciones.
+     * Esperar la señal de inicio.
      */
     $deadline = microtime(true) + 15;
 
-    while (! is_file(getenv('YESIAM_GATE'))) {
+    while (
+        ! is_file(
+            getenv('YESIAM_GATE')
+        )
+    ) {
         if (microtime(true) > $deadline) {
             throw new RuntimeException(
                 'Se agotó el tiempo de espera.'
@@ -219,7 +254,7 @@ try {
     }
 
     /*
-     * Iniciar la transacción independiente.
+     * Ejecutar inserción independiente.
      */
     $pdo->beginTransaction();
 
@@ -238,8 +273,7 @@ try {
     ]);
 
     /*
-     * Confirmar la concesión si MySQL
-     * aceptó la inserción.
+     * Confirmar la concesión.
      */
     $pdo->commit();
 
@@ -256,20 +290,17 @@ try {
 
     /*
      * MySQL 1062:
-     * Duplicate entry for unique key.
+     * Violación de restricción UNIQUE.
      */
     if (
-        (int) ($exception->errorInfo[1] ?? 0)
-        === 1062
+        (int) (
+            $exception->errorInfo[1] ?? 0
+        ) === 1062
     ) {
         echo 'duplicate';
         exit(0);
     }
 
-    /*
-     * Otros errores no deben tratarse
-     * como un duplicado válido.
-     */
     fwrite(
         STDERR,
         $exception->getMessage()
@@ -295,81 +326,88 @@ try {
 }
 WORKER;
 
-        /*
-         * 7. Obtener la configuración
-         * de la conexión MySQL de pruebas.
-         */
+            /*
+             * 8. CONFIGURACIÓN DE MYSQL
+             */
+            $database = config(
+                'database.connections.mysql'
+            );
 
-        $database = config(
-            'database.connections.mysql'
-        );
+            $commonEnvironment = [
+                'YESIAM_HOST' =>
+                    (string) (
+                        $database['host'] ?? '127.0.0.1'
+                    ),
 
-        /*
-         * Compartir únicamente la conexión
-         * a yesiam_test y los IDs necesarios
-         * entre ambos procesos.
-         */
+                'YESIAM_PORT' =>
+                    (string) (
+                        $database['port'] ?? '3306'
+                    ),
 
-        $commonEnvironment = [
-            'YESIAM_HOST' =>
-                (string) ($database['host'] ?? '127.0.0.1'),
+                'YESIAM_DATABASE' =>
+                    'yesiam_test',
 
-            'YESIAM_PORT' =>
-                (string) ($database['port'] ?? '3306'),
+                'YESIAM_CHARSET' =>
+                    (string) (
+                        $database['charset'] ?? 'utf8mb4'
+                    ),
 
-            'YESIAM_DATABASE' =>
-                'yesiam_test',
+                'YESIAM_USERNAME' =>
+                    (string) (
+                        $database['username'] ?? ''
+                    ),
 
-            'YESIAM_CHARSET' =>
-                (string) ($database['charset'] ?? 'utf8mb4'),
+                'YESIAM_PASSWORD' =>
+                    (string) (
+                        $database['password'] ?? ''
+                    ),
 
-            'YESIAM_USERNAME' =>
-                (string) ($database['username'] ?? ''),
+                'YESIAM_GATE' =>
+                    $gate,
 
-            'YESIAM_PASSWORD' =>
-                (string) ($database['password'] ?? ''),
+                'YESIAM_EMPLOYEE_ID' =>
+                    (string) $employee->id,
 
-            'YESIAM_GATE' =>
-                $gate,
+                'YESIAM_RESOURCE_ID' =>
+                    (string) $resource->id,
 
-            'YESIAM_EMPLOYEE_ID' =>
-                (string) $employee->id,
-
-            'YESIAM_RESOURCE_ID' =>
-                (string) $resource->id,
-
-            'YESIAM_ADMIN_ID' =>
-                (string) $admin->id,
-        ];
-
-        $processA = null;
-        $processB = null;
-
-        try {
+                'YESIAM_ADMIN_ID' =>
+                    (string) $admin->id,
+            ];
 
             /*
-             * 8. Preparar el proceso A.
+             * 9. PREPARAR PROCESO A
              */
-
             $processA = new Process(
-                [PHP_BINARY, '-r', $workerCode],
+                [
+                    PHP_BINARY,
+                    '-r',
+                    $workerCode,
+                ],
                 base_path(),
                 $commonEnvironment + [
-                    'YESIAM_READY' => $readyA,
+                    'YESIAM_READY' =>
+                        $readyA,
+
                     'YESIAM_REQUEST_ID' =>
                         (string) $firstRequest->id,
                 ]
             );
 
             /*
-             * 9. Preparar el proceso B.
+             * 10. PREPARAR PROCESO B
              */
-
             $processB = new Process(
-                [PHP_BINARY, '-r', $workerCode],
+                [
+                    PHP_BINARY,
+                    '-r',
+                    $workerCode,
+                ],
                 base_path(),
                 $commonEnvironment + [
-                    'YESIAM_READY' => $readyB,
+                    'YESIAM_READY' =>
+                        $readyB,
+
                     'YESIAM_REQUEST_ID' =>
                         (string) $secondRequest->id,
                 ]
@@ -379,21 +417,14 @@ WORKER;
             $processB->setTimeout(30);
 
             /*
-             * 10. Iniciar los dos procesos.
-             *
-             * start() no espera a que terminen,
-             * por eso ambos pueden ejecutarse
-             * concurrentemente.
+             * 11. INICIAR AMBOS PROCESOS
              */
-
             $processA->start();
             $processB->start();
 
             /*
-             * 11. Esperar a que ambos trabajadores
-             * hayan establecido conexión.
+             * 12. ESPERAR A LOS TRABAJADORES
              */
-
             $deadline = microtime(true) + 15;
 
             while (
@@ -418,20 +449,21 @@ WORKER;
             }
 
             /*
-             * 12. Liberar ambos procesos.
+             * 13. LIBERAR LA BARRERA
              *
-             * Los trabajadores intentarán
-             * realizar sus inserciones.
+             * Ambos trabajadores pueden
+             * intentar insertar al mismo tiempo.
              */
-
             $this->assertNotFalse(
-                file_put_contents($gate, 'go')
+                file_put_contents(
+                    $gate,
+                    'go'
+                )
             );
 
             /*
-             * 13. Esperar los resultados.
+             * 14. ESPERAR LOS RESULTADOS
              */
-
             $exitA = $processA->wait();
             $exitB = $processB->wait();
 
@@ -448,55 +480,80 @@ WORKER;
             );
 
             /*
-             * 14. Analizar las respuestas.
+             * 15. VERIFICAR RESULTADOS
              *
-             * Una debe tener éxito.
-             * La otra debe ser rechazada
-             * por el índice UNIQUE.
+             * Uno debe insertar correctamente.
+             * El otro debe recibir duplicado.
              */
-
             $results = [
-                trim($processA->getOutput()),
-                trim($processB->getOutput()),
+                trim(
+                    $processA->getOutput()
+                ),
+                trim(
+                    $processB->getOutput()
+                ),
             ];
 
             sort($results);
 
             $this->assertSame(
-                ['duplicate', 'success'],
+                [
+                    'duplicate',
+                    'success',
+                ],
                 $results
             );
 
             /*
-             * 15. Verificar el estado real
-             * de la base de datos.
+             * 16. VERIFICAR INTEGRIDAD
+             *
+             * Solo contamos concesiones
+             * relacionadas con nuestro recurso.
+             *
+             * No suponemos que las demás
+             * tablas estén vacías.
              */
-
-            $this->assertDatabaseCount(
-                'access_grants',
-                1
+            $this->assertSame(
+                1,
+                DB::table('access_grants')
+                    ->where(
+                        'resource_id',
+                        $resource->id
+                    )
+                    ->count()
             );
 
             $this->assertSame(
                 1,
                 DB::table('access_grants')
-                    ->where('user_id', $employee->id)
-                    ->where('resource_id', $resource->id)
-                    ->where('status', 'active')
+                    ->where(
+                        'user_id',
+                        $employee->id
+                    )
+                    ->where(
+                        'resource_id',
+                        $resource->id
+                    )
+                    ->where(
+                        'status',
+                        'active'
+                    )
                     ->count()
             );
 
             /*
-             * La concesión que ganó debe
-             * pertenecer a una de las
-             * dos solicitudes aprobadas.
+             * 17. VALIDAR SOLICITUD GANADORA
              */
-
             $savedRequestId = DB::table(
                 'access_grants'
             )
-                ->where('user_id', $employee->id)
-                ->value('access_request_id');
+                ->where(
+                    'resource_id',
+                    $resource->id
+                )
+                ->value(
+                    'access_request_id'
+                );
 
             $this->assertContains(
                 (int) $savedRequestId,
@@ -507,32 +564,30 @@ WORKER;
             );
 
             /*
-             * Los trabajadores insertaron
-             * directamente en MySQL.
+             * 18. VALIDAR AUSENCIA DE AUDITORÍA
              *
-             * No existe auditoría porque
-             * no ejecutaron el AuditService.
+             * Los procesos insertan mediante
+             * PDO, sin ejecutar AuditService.
              */
-
-            $this->assertDatabaseCount(
-                'audit_logs',
-                0
+            $this->assertSame(
+                0,
+                DB::table('audit_logs')
+                    ->where(
+                        'actor_user_id',
+                        $admin->id
+                    )
+                    ->count()
             );
 
         } finally {
 
             /*
-             * 16. Limpieza garantizada.
+             * 19. DETENER PROCESOS
              *
-             * Incluso si falla una aserción,
-             * detenemos los trabajadores
-             * y eliminamos señales temporales.
+             * Nunca eliminamos los datos
+             * mientras un trabajador continúa
+             * utilizándolos.
              */
-
-            if (! is_file($gate)) {
-                @file_put_contents($gate, 'go');
-            }
-
             foreach (
                 [$processA, $processB]
                 as $process
@@ -545,22 +600,96 @@ WORKER;
                 }
             }
 
-            foreach (
-                [$gate, $readyA, $readyB]
-                as $file
+            /*
+             * 20. LIMPIAR ARCHIVOS TEMPORALES
+             */
+            if (
+                $folder !== null
+                && is_dir($folder)
             ) {
-                if (is_file($file)) {
-                    @unlink($file);
+                foreach (
+                    [
+                        'start.flag',
+                        'worker-a.ready',
+                        'worker-b.ready',
+                    ] as $name
+                ) {
+                    $path = $folder
+                        . DIRECTORY_SEPARATOR
+                        . $name;
+
+                    if (is_file($path)) {
+                        @unlink($path);
+                    }
                 }
+
+                @rmdir($folder);
             }
 
-            @rmdir($folder);
+            /*
+             * 21. ELIMINAR CONCESIONES,
+             * SOLICITUDES Y RECURSO
+             *
+             * Solo eliminamos los registros
+             * asociados al recurso temporal.
+             */
+            if ($resource !== null) {
+
+                DB::table('access_grants')
+                    ->where(
+                        'resource_id',
+                        $resource->id
+                    )
+                    ->delete();
+
+                DB::table('access_requests')
+                    ->where(
+                        'resource_id',
+                        $resource->id
+                    )
+                    ->delete();
+
+                DB::table('resources')
+                    ->where(
+                        'id',
+                        $resource->id
+                    )
+                    ->delete();
+            }
+
+            /*
+             * 22. ELIMINAR IDENTIDADES TEMPORALES
+             */
+            $userIds = array_values(
+                array_filter([
+                    $admin?->id,
+                    $employee?->id,
+                    $approver?->id,
+                ])
+            );
+
+            if ($userIds !== []) {
+
+                DB::table('user_roles')
+                    ->whereIn(
+                        'user_id',
+                        $userIds
+                    )
+                    ->delete();
+
+                DB::table('users')
+                    ->whereIn(
+                        'id',
+                        $userIds
+                    )
+                    ->delete();
+            }
         }
     }
 
     /*
     |--------------------------------------------------------------------------
-    | CREAR UNA SOLICITUD APROBADA
+    | CREAR SOLICITUD APROBADA DE PRUEBA
     |--------------------------------------------------------------------------
     */
 
@@ -571,18 +700,27 @@ WORKER;
     ): AccessRequest {
 
         $request = AccessRequest::create([
-            'requester_user_id' => $employee->id,
-            'resource_id' => $resource->id,
+            'requester_user_id' =>
+                $employee->id,
+
+            'resource_id' =>
+                $resource->id,
+
             'justification' =>
                 'Requiere acceso VPN para sus funciones.',
         ]);
 
         $request->forceFill([
             'status' => 'approved',
-            'decided_by_user_id' => $approver->id,
+
+            'decided_by_user_id' =>
+                $approver->id,
+
             'decision_reason' =>
                 'Solicitud aprobada para pruebas.',
-            'decided_at' => now(),
+
+            'decided_at' =>
+                now(),
         ])->save();
 
         return $request->refresh();
