@@ -1,17 +1,20 @@
 
 import { Component, signal } from '@angular/core';
+
 import {
   RouterLink,
   RouterLinkActive,
   RouterOutlet,
 } from '@angular/router';
 
+import { LogoutButton } from '../core/auth/logout-button';
+
 /*
 |--------------------------------------------------------------------------
 | YESIAM - MAIN APPLICATION LAYOUT
 |--------------------------------------------------------------------------
 |
-| Fase 19.2.7
+| Fase 19.3.15
 |
 | Responsabilidades:
 |
@@ -20,6 +23,7 @@ import {
 | - Contener las páginas mediante RouterOutlet.
 | - Permitir navegación a las rutas implementadas.
 | - Adaptar el menú a dispositivos móviles.
+| - Incorporar el cierre de sesión con Laravel Sanctum.
 |
 | La autorización de operaciones IAM
 | seguirá siendo responsabilidad de Laravel.
@@ -33,6 +37,7 @@ import {
     RouterOutlet,
     RouterLink,
     RouterLinkActive,
+    LogoutButton,
   ],
   template: `
     <div class="app-shell">
@@ -260,15 +265,20 @@ import {
           <div class="topbar-actions">
 
             <span class="connection-status">
-              API pendiente de conectar
+              Acceso protegido
             </span>
 
             <div
               class="profile-avatar"
-              aria-label="Autenticación pendiente de integrar"
-              title="Autenticación pendiente de integrar"
+              aria-label="YESIAM"
+              title="YESIAM"
             >
               Y
+            </div>
+
+            <!-- CIERRE DE SESIÓN -->
+            <div class="logout-action">
+              <app-logout-button />
             </div>
 
           </div>
@@ -556,6 +566,13 @@ import {
       font-weight: 700;
     }
 
+    /* CIERRE DE SESIÓN */
+
+    .logout-action {
+      flex: 0 0 150px;
+      width: 150px;
+    }
+
     .page-content {
       flex: 1;
       width: 100%;
@@ -682,8 +699,18 @@ import {
         padding: 14px 18px;
       }
 
-      .connection-status {
+      .topbar-actions {
+        gap: 8px;
+      }
+
+      .connection-status,
+      .profile-avatar {
         display: none;
+      }
+
+      .logout-action {
+        flex: 0 0 130px;
+        width: 130px;
       }
 
       .page-content {

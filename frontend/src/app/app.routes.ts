@@ -1,58 +1,96 @@
-
 import { Routes } from '@angular/router';
+
 import { MainLayout } from './layout/main-layout';
+
+import { authGuard } from './core/auth/auth.guard';
 
 /*
 |--------------------------------------------------------------------------
-| YESIAM - CONFIGURACIÓN DE RUTAS
+| YESIAM - RUTAS PRINCIPALES
 |--------------------------------------------------------------------------
 |
-| FASE 19.2.6
+| FASE 19.3.12
 |
-| Estructura:
+| /sign-in
+|   Pantalla pública de autenticación.
 |
-| App
-|  └── MainLayout
-|       └── Dashboard
+| /
+|   Área privada de YESIAM.
+|   Requiere una sesión válida de Laravel.
 |
-| El MainLayout es el contenedor principal
-| de las páginas del sistema.
+| SEGURIDAD:
 |
-| Los módulos se cargarán progresivamente
-| utilizando lazy loading.
+| El AuthGuard verifica la sesión mediante
+| GET /api/user antes de activar
+| las rutas protegidas.
 |
-| IMPORTANTE:
-| Las rutas del frontend no reemplazan
-| las autorizaciones de Laravel.
+| La autorización real de los recursos
+| sigue siendo responsabilidad de Laravel.
 |
 */
 
 export const routes: Routes = [
+
+  /*
+  |--------------------------------------------------------------------------
+  | AUTENTICACIÓN - RUTA PÚBLICA
+  |--------------------------------------------------------------------------
+  |
+  | No aplicamos authGuard aquí.
+  |
+  | Un usuario sin sesión debe poder
+  | acceder al formulario de login.
+  |
+  */
+  {
+    path: 'sign-in',
+    title: 'Iniciar sesión | YESIAM',
+    loadComponent: () =>
+      import('./features/auth/login').then(
+        (module) => module.Login
+      ),
+  },
+
+  /*
+  |--------------------------------------------------------------------------
+  | APLICACIÓN PRINCIPAL - RUTAS PROTEGIDAS
+  |--------------------------------------------------------------------------
+  |
+  | canActivate verifica la sesión antes
+  | de activar el MainLayout.
+  |
+  | En el futuro podremos añadir aquí:
+  |
+  | - Usuarios
+  | - Departamentos
+  | - Recursos
+  | - Solicitudes de acceso
+  | - Auditoría
+  |
+  */
   {
     path: '',
     component: MainLayout,
+    canActivate: [authGuard],
 
     children: [
       {
         path: '',
         pathMatch: 'full',
-
         title: 'Dashboard | YESIAM',
-
         loadComponent: () =>
-          import('./features/dashboard/dashboard')
-            .then((module) => module.Dashboard),
+          import('./features/dashboard/dashboard').then(
+            (module) => module.Dashboard
+          ),
       },
     ],
   },
 
   /*
-   * Ruta desconocida:
-   * regresar al Dashboard.
-   *
-   * Más adelante podremos implementar
-   * una página 404 específica.
-   */
+  |--------------------------------------------------------------------------
+  | RUTAS DESCONOCIDAS
+  |--------------------------------------------------------------------------
+  */
   {
     path: '**',
     redirectTo: '',
