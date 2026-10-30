@@ -1,4 +1,3 @@
-
 import { Component, signal } from '@angular/core';
 
 import {
@@ -14,7 +13,7 @@ import { LogoutButton } from '../core/auth/logout-button';
 | YESIAM - MAIN APPLICATION LAYOUT
 |--------------------------------------------------------------------------
 |
-| Fase 19.3.15
+| Fase 19.4.11
 |
 | Responsabilidades:
 |
@@ -121,9 +120,15 @@ import { LogoutButton } from '../core/auth/logout-button';
             IDENTITY MANAGEMENT
           </span>
 
-          <span
-            class="nav-item nav-item--pending"
-            title="Módulo pendiente de implementar"
+          <!-- IDENTIDADES: RUTA FUNCIONAL -->
+          <a
+            class="nav-item"
+            routerLink="/identities"
+            routerLinkActive="selected"
+            [routerLinkActiveOptions]="{ exact: true }"
+            ariaCurrentWhenActive="page"
+            title="Identidades"
+            (click)="closeMobileMenu()"
           >
             <span class="nav-icon" aria-hidden="true">
               ID
@@ -132,7 +137,7 @@ import { LogoutButton } from '../core/auth/logout-button';
             <span class="nav-label">
               Identidades
             </span>
-          </span>
+          </a>
 
           <span
             class="nav-item nav-item--pending"

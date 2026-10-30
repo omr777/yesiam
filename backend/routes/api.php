@@ -95,9 +95,23 @@ Route::middleware([
 
     /*
     |--------------------------------------------------------------------------
-    | IDENTIDADES - JOINER / MOVER / LEAVER
+    | IDENTIDADES - CONSULTA / JOINER / MOVER / LEAVER
     |--------------------------------------------------------------------------
+    |
+    | GET /users:
+    | Consulta paginada de identidades.
+    |
+    | UserController::index aplica:
+    | Gate::authorize('viewAny', User::class)
+    |
+    | UserPolicy requiere users.manage.
+    |
     */
+
+    Route::get(
+        '/users',
+        [UserController::class, 'index']
+    );
 
     Route::post(
         '/users',

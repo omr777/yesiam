@@ -9,23 +9,28 @@ import { authGuard } from './core/auth/auth.guard';
 | YESIAM - RUTAS PRINCIPALES
 |--------------------------------------------------------------------------
 |
-| FASE 19.3.12
+| FASE 19.4.10
 |
 | /sign-in
 |   Pantalla pública de autenticación.
 |
 | /
-|   Área privada de YESIAM.
-|   Requiere una sesión válida de Laravel.
+|   Dashboard principal de YESIAM.
+|
+| /identities
+|   Directorio de identidades.
 |
 | SEGURIDAD:
 |
-| El AuthGuard verifica la sesión mediante
-| GET /api/user antes de activar
-| las rutas protegidas.
+| Las rutas privadas se encuentran
+| dentro de MainLayout y están
+| protegidas por authGuard.
 |
-| La autorización real de los recursos
-| sigue siendo responsabilidad de Laravel.
+| El guard verifica la sesión
+| mediante GET /api/user.
+|
+| Laravel continúa siendo responsable
+| de autorizar cada operación IAM.
 |
 */
 
@@ -42,9 +47,12 @@ export const routes: Routes = [
   | acceder al formulario de login.
   |
   */
+
   {
     path: 'sign-in',
+
     title: 'Iniciar sesión | YESIAM',
+
     loadComponent: () =>
       import('./features/auth/login').then(
         (module) => module.Login
@@ -56,33 +64,78 @@ export const routes: Routes = [
   | APLICACIÓN PRINCIPAL - RUTAS PROTEGIDAS
   |--------------------------------------------------------------------------
   |
-  | canActivate verifica la sesión antes
-  | de activar el MainLayout.
+  | El AuthGuard comprueba que existe
+  | una sesión válida de Laravel.
   |
-  | En el futuro podremos añadir aquí:
+  | Los módulos comparten MainLayout:
   |
-  | - Usuarios
-  | - Departamentos
-  | - Recursos
-  | - Solicitudes de acceso
-  | - Auditoría
+  | - Dashboard
+  | - Identidades
+  |
+  | Los demás módulos se incorporarán
+  | conforme sean implementados.
   |
   */
+
   {
     path: '',
+
     component: MainLayout,
+
     canActivate: [authGuard],
 
     children: [
+
+      /*
+      |--------------------------------------------------------------------------
+      | DASHBOARD
+      |--------------------------------------------------------------------------
+      */
+
       {
         path: '',
+
         pathMatch: 'full',
+
         title: 'Dashboard | YESIAM',
+
         loadComponent: () =>
           import('./features/dashboard/dashboard').then(
             (module) => module.Dashboard
           ),
       },
+
+      /*
+      |--------------------------------------------------------------------------
+      | IDENTITY MANAGEMENT
+      |--------------------------------------------------------------------------
+      |
+      | GET /api/users
+      |
+      | La consulta requiere:
+      |
+      | - Sesión válida de Sanctum.
+      | - Cuenta activa.
+      | - Permiso users.manage.
+      |
+      | Estas comprobaciones se
+      | realizan en Laravel.
+      |
+      */
+
+      {
+        path: 'identities',
+
+        title: 'Identidades | YESIAM',
+
+        canActivate: [authGuard],
+
+        loadComponent: () =>
+          import('./features/identities/identity-list').then(
+            (module) => module.IdentityList
+          ),
+      },
+
     ],
   },
 
@@ -91,8 +144,11 @@ export const routes: Routes = [
   | RUTAS DESCONOCIDAS
   |--------------------------------------------------------------------------
   */
+
   {
     path: '**',
+
     redirectTo: '',
   },
+
 ];

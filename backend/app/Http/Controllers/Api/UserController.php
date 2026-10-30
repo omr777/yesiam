@@ -34,6 +34,80 @@ class UserController extends Controller
 
     /*
     |--------------------------------------------------------------------------
+    | CONSULTAR IDENTIDADES - LISTADO PAGINADO
+    |--------------------------------------------------------------------------
+    |
+    | Solo usuarios con users.manage (UserPolicy::viewAny).
+    | Se seleccionan únicamente los campos necesarios para la UI.
+    | Los filtros y el tamaño de página se validan antes de consultar.
+    |
+    */
+
+    public function index(Request $request): JsonResponse
+    {
+        Gate::authorize('viewAny', User::class);
+
+        $validated = $request->validate([
+            'search' => ['sometimes', 'nullable', 'string', 'max:100'],
+            'status' => [
+                'sometimes',
+                'nullable',
+                Rule::in(['active', 'suspended', 'disabled']),
+            ],
+            'per_page' => ['sometimes', 'integer', 'min:1', 'max:100'],
+            'page' => ['sometimes', 'integer', 'min:1'],
+        ]);
+
+        $query = User::query()
+            ->select([
+                'id',
+                'name',
+                'email',
+                'status',
+                'department_id',
+            ]);
+
+        /*
+         * Filtro opcional por estado.
+         */
+        if (isset($validated['status'])) {
+            $query->where(
+                'status',
+                $validated['status']
+            );
+        }
+
+        /*
+         * Búsqueda opcional por nombre o correo.
+         *
+         * Laravel parametriza el valor de búsqueda.
+         * El agrupamiento mantiene correctamente
+         * combinados los filtros.
+         */
+        if (isset($validated['search'])) {
+            $search = trim($validated['search']);
+
+            if ($search !== '') {
+                $query->where(function ($builder) use ($search) {
+                    $builder
+                        ->where('name', 'like', "%{$search}%")
+                        ->orWhere('email', 'like', "%{$search}%");
+                });
+            }
+        }
+
+        /*
+         * Orden estable y paginación.
+         */
+        $users = $query
+            ->orderBy('id')
+            ->paginate($validated['per_page'] ?? 15);
+
+        return response()->json($users);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
     | JOINER - CREAR UNA IDENTIDAD
     |--------------------------------------------------------------------------
     */
