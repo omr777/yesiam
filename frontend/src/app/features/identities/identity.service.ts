@@ -13,10 +13,12 @@ import { Observable } from 'rxjs';
 | YESIAM - MODELOS DE IDENTIDADES
 |--------------------------------------------------------------------------
 |
-| FASE 19.4.6
+| FASE 19.5.1
 |
-| Estos modelos representan exclusivamente
-| los campos expuestos por GET /api/users.
+| Modelos para:
+|
+| - Consultar el directorio de identidades.
+| - Crear identidades mediante el proceso Joiner.
 |
 | No incluimos contraseñas, tokens ni
 | información sensible de autenticación.
@@ -29,7 +31,7 @@ export type IdentityStatus =
   | 'disabled';
 
 /*
- * Identidad devuelta por Laravel.
+ * Identidad devuelta por el listado de Laravel.
  */
 export interface Identity {
   id: number;
@@ -40,10 +42,15 @@ export interface Identity {
 }
 
 /*
+|--------------------------------------------------------------------------
+| CONSULTA DE IDENTIDADES
+|--------------------------------------------------------------------------
+*/
+
+/*
  * Parámetros opcionales del listado.
  *
- * Los nombres de los parámetros HTTP
- * coinciden con UserController::index().
+ * Coinciden con UserController::index().
  */
 export interface IdentityFilters {
   search?: string;
@@ -54,10 +61,6 @@ export interface IdentityFilters {
 
 /*
  * Respuesta paginada de Laravel.
- *
- * Conservamos los campos que necesita
- * nuestro frontend para representar
- * el listado y la navegación.
  */
 export interface PaginatedIdentitiesResponse {
   data: Identity[];
@@ -76,6 +79,52 @@ export interface PaginatedIdentitiesResponse {
 
 /*
 |--------------------------------------------------------------------------
+| JOINER - CREACIÓN DE IDENTIDADES
+|--------------------------------------------------------------------------
+|
+| Los campos enviados coinciden exactamente
+| con los que valida UserController::store().
+|
+| No enviamos:
+|
+| - ID del usuario.
+| - Contraseña.
+| - Rol.
+| - Estado de la cuenta.
+|
+| Es Laravel quien determina esos valores.
+|
+*/
+
+/*
+ * Solicitud POST /api/users.
+ */
+export interface CreateIdentityRequest {
+  name: string;
+  email: string;
+  department_id: number;
+}
+
+/*
+ * Identidad devuelta después de crearla.
+ *
+ * Laravel incorpora el rol inicial
+ * asignado durante el proceso Joiner.
+ */
+export interface CreatedIdentity extends Identity {
+  roles: string[];
+}
+
+/*
+ * Respuesta HTTP 201 del backend.
+ */
+export interface CreateIdentityResponse {
+  message: string;
+  data: CreatedIdentity;
+}
+
+/*
+|--------------------------------------------------------------------------
 | YESIAM - IDENTITY SERVICE
 |--------------------------------------------------------------------------
 |
@@ -84,14 +133,17 @@ export interface PaginatedIdentitiesResponse {
 | 1. Consultar identidades registradas.
 | 2. Enviar filtros de búsqueda y estado.
 | 3. Solicitar páginas de resultados.
-| 4. Mantener tipadas las respuestas HTTP.
+| 4. Crear nuevas identidades.
+| 5. Mantener tipadas las respuestas HTTP.
 |
 | SEGURIDAD:
 |
-| - Usamos la sesión existente de Sanctum.
+| - Reutilizamos la sesión de Laravel Sanctum.
 | - No almacenamos tokens en localStorage.
-| - No enviamos contraseñas.
-| - No sustituimos la autorización de Laravel.
+| - No generamos contraseñas desde Angular.
+| - No asignamos roles desde Angular.
+| - No activamos automáticamente identidades.
+| - Laravel realiza la autorización RBAC.
 | - Los errores HTTP se propagan al componente.
 |
 */
@@ -104,16 +156,16 @@ export class IdentityService {
   private readonly http = inject(HttpClient);
 
   /*
-   * URL relativa para aprovechar
-   * el proxy configurado en Angular.
+   * URL relativa para utilizar el proxy
+   * y las cookies de sesión existentes.
    */
   private readonly endpoint = '/api/users';
 
   /*
-   * Configuración común de solicitudes.
+   * Configuración HTTP compartida.
    *
-   * withCredentials mantiene compatibilidad
-   * con la autenticación mediante cookies.
+   * Las solicitudes usan JSON y
+   * credenciales de sesión.
    */
   private readonly requestOptions = {
     headers: new HttpHeaders({
@@ -131,7 +183,7 @@ export class IdentityService {
   |
   | GET /api/users
   |
-  | Parámetros opcionales:
+  | Parámetros:
   |
   | search
   | status
@@ -153,23 +205,15 @@ export class IdentityService {
   ): Observable<PaginatedIdentitiesResponse> {
 
     /*
-     * Valores predeterminados:
-     *
-     * Primera página.
-     * 15 identidades por página.
+     * Primera página y 15 registros
+     * como valores predeterminados.
      */
     let params = new HttpParams()
       .set('page', String(filters.page ?? 1))
       .set('per_page', String(filters.perPage ?? 15));
 
     /*
-     * Búsqueda opcional.
-     *
-     * Eliminamos espacios al principio
-     * y final del texto.
-     *
-     * HttpParams codifica el valor
-     * como parámetro de URL.
+     * Búsqueda opcional por nombre o correo.
      */
     const search = filters.search?.trim();
 
@@ -179,9 +223,6 @@ export class IdentityService {
 
     /*
      * Filtro opcional por estado.
-     *
-     * Si está vacío, consultamos
-     * identidades de todos los estados.
      */
     if (filters.status) {
       params = params.set(
@@ -191,12 +232,12 @@ export class IdentityService {
     }
 
     /*
-     * La autorización y las validaciones
-     * definitivas corresponden a Laravel.
+     * No transformamos los errores 401/403
+     * en listas vacías.
      *
-     * No convertimos respuestas 401/403
-     * en listas vacías: el componente
-     * debe poder mostrar el error real.
+     * El componente debe distinguir
+     * entre ausencia de datos y
+     * falta de autorización.
      */
     return this.http.get<PaginatedIdentitiesResponse>(
       this.endpoint,
@@ -204,6 +245,70 @@ export class IdentityService {
         ...this.requestOptions,
         params,
       }
+    );
+  }
+
+  /*
+  |--------------------------------------------------------------------------
+  | JOINER - CREAR IDENTIDAD
+  |--------------------------------------------------------------------------
+  |
+  | Endpoint:
+  |
+  | POST /api/users
+  |
+  | Datos enviados:
+  |
+  | - name
+  | - email
+  | - department_id
+  |
+  | SEGURIDAD EN LARAVEL:
+  |
+  | 1. Sanctum autentica al solicitante.
+  | 2. account.active verifica su estado.
+  | 3. UserPolicy::create comprueba users.manage.
+  | 4. Laravel valida los campos.
+  | 5. Se verifica que el departamento esté activo.
+  | 6. Se crea la identidad suspendida.
+  | 7. Se asigna el rol employee.
+  | 8. Se registra el evento de auditoría.
+  |
+  | El backend devuelve HTTP 201
+  | cuando la creación es exitosa.
+  |
+  */
+
+  create(
+    payload: CreateIdentityRequest
+  ): Observable<CreateIdentityResponse> {
+
+    /*
+     * Enviamos únicamente los campos
+     * aceptados por el controlador.
+     *
+     * No enviamos status, password ni roles.
+     */
+    const body: CreateIdentityRequest = {
+      name: payload.name,
+      email: payload.email,
+      department_id: payload.department_id,
+    };
+
+    /*
+     * Angular utiliza la configuración
+     * XSRF existente para las solicitudes
+     * de escritura del mismo origen.
+     *
+     * La sesión de Sanctum ya fue
+     * establecida durante el login.
+     *
+     * No agregamos un Bearer Token.
+     */
+    return this.http.post<CreateIdentityResponse>(
+      this.endpoint,
+      body,
+      this.requestOptions
     );
   }
 }
