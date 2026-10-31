@@ -333,4 +333,60 @@ class AccessRequestController extends Controller
             ),
         ], 201);
     }
+
+    /*
+    |--------------------------------------------------------------------------
+    | FASE 20 - COLA DE CONCESIÓN
+    |--------------------------------------------------------------------------
+    |
+    | GET /api/access-requests/ready-to-grant
+    |
+    | Solicitudes aprobadas que aún no tienen
+    | concesión. Excluye:
+    |
+    | - Solicitudes propias (no autoconcesión).
+    | - Solicitantes no activos.
+    | - Recursos inactivos.
+    |
+    | El endpoint de concesión vuelve a
+    | verificar todo dentro de su transacción.
+    |
+    */
+
+    public function readyToGrant(Request $request): JsonResponse
+    {
+        Gate::authorize(
+            'viewGrantQueue',
+            AccessRequest::class
+        );
+
+        $actor = $request->user();
+
+        $requests = AccessRequest::query()
+            ->where('status', 'approved')
+            ->where(
+                'requester_user_id',
+                '!=',
+                $actor->id
+            )
+            ->whereDoesntHave('accessGrant')
+            ->whereHas(
+                'requester',
+                fn ($query) => $query->where('status', 'active')
+            )
+            ->whereHas(
+                'resource',
+                fn ($query) => $query->where('is_active', true)
+            )
+            ->with([
+                'requester:id,name,email,department_id',
+                'resource:id,name,code,is_active',
+                'decidedBy:id,name',
+            ])
+            ->orderBy('decided_at')
+            ->orderBy('id')
+            ->paginate(20);
+
+        return response()->json($requests);
+    }
 }

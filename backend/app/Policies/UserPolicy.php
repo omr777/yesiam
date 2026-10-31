@@ -78,4 +78,61 @@ class UserPolicy
         return $actor->hasPermission('users.manage')
             && $actor->id !== $target->id;
     }
+
+    /*
+    |--------------------------------------------------------------------------
+    | FASE 20 - CONSULTAR UNA IDENTIDAD
+    |--------------------------------------------------------------------------
+    |
+    | El detalle requiere el mismo permiso
+    | que el directorio.
+    |
+    */
+
+    public function view(
+        User $actor,
+        User $target
+    ): bool {
+        return $actor->hasPermission('users.manage');
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | FASE 20 - ACTIVAR IDENTIDAD
+    |--------------------------------------------------------------------------
+    |
+    | Completa el Joiner: una identidad
+    | suspendida pasa a activa.
+    |
+    | No se permite autoactivación.
+    |
+    */
+
+    public function activate(
+        User $actor,
+        User $target
+    ): bool {
+        return $actor->hasPermission('users.manage')
+            && $actor->id !== $target->id;
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | FASE 20 - ASIGNAR ROLES
+    |--------------------------------------------------------------------------
+    |
+    | Un administrador no puede cambiar
+    | sus propios roles: evita escalar
+    | privilegios o retirarse el acceso
+    | administrativo por error.
+    |
+    */
+
+    public function assignRoles(
+        User $actor,
+        User $target
+    ): bool {
+        return $actor->hasPermission('users.manage')
+            && $actor->id !== $target->id;
+    }
 }

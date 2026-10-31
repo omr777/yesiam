@@ -166,4 +166,114 @@ class ResourceApproverController extends Controller
             'data' => $assignment,
         ], 201);
     }
+
+    /*
+    |--------------------------------------------------------------------------
+    | FASE 20 - CONSULTAR RESPONSABLES
+    |--------------------------------------------------------------------------
+    |
+    | GET /api/resources/{resource}/approvers
+    |
+    | Solo campos necesarios para la gestión.
+    |
+    */
+
+    public function index(Resource $resource): JsonResponse
+    {
+        Gate::authorize('viewApprovers', $resource);
+
+        $approvers = $resource->approvers()
+            ->orderBy('users.name')
+            ->get([
+                'users.id',
+                'users.name',
+                'users.email',
+                'users.status',
+            ])
+            ->map(fn (User $approver) => [
+                'id' => $approver->id,
+                'name' => $approver->name,
+                'email' => $approver->email,
+                'status' => $approver->status,
+                'assigned_at' => $approver->pivot->created_at,
+            ])
+            ->values();
+
+        return response()->json([
+            'data' => $approvers,
+        ]);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | FASE 20 - RETIRAR RESPONSABLE
+    |--------------------------------------------------------------------------
+    |
+    | DELETE /api/resources/{resource}/approvers/{user}
+    |
+    | Las solicitudes pendientes no se pierden:
+    | quedan disponibles para los demás
+    | responsables del recurso.
+    |
+    */
+
+    public function destroy(
+        Request $request,
+        Resource $resource,
+        User $user
+    ): JsonResponse {
+        Gate::authorize('assignApprover', $resource);
+
+        $actor = $request->user();
+
+        DB::transaction(function () use (
+            $resource,
+            $user,
+            $actor,
+            $request
+        ) {
+            $lockedResource = Resource::query()
+                ->whereKey($resource->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            if (! $lockedResource->is_active) {
+                abort(
+                    409,
+                    'No se pueden modificar los responsables de un recurso inactivo.'
+                );
+            }
+
+            $isAssigned = DB::table('resource_approvers')
+                ->where('resource_id', $lockedResource->id)
+                ->where('user_id', $user->id)
+                ->lockForUpdate()
+                ->exists();
+
+            if (! $isAssigned) {
+                abort(
+                    404,
+                    'Este usuario no es responsable del recurso.'
+                );
+            }
+
+            $lockedResource->approvers()->detach($user->id);
+
+            $this->audit->resourceApproverRemoved(
+                $actor,
+                $lockedResource,
+                $user,
+                'manual',
+                $request->ip()
+            );
+        }, 3);
+
+        return response()->json([
+            'message' => 'Responsable retirado correctamente.',
+            'data' => [
+                'resource_id' => $resource->id,
+                'user_id' => $user->id,
+            ],
+        ]);
+    }
 }

@@ -43,6 +43,22 @@ class AccessRequestPolicy
 
     /*
     |--------------------------------------------------------------------------
+    | FASE 20 - COLA DE CONCESIÓN
+    |--------------------------------------------------------------------------
+    |
+    | Solicitudes aprobadas pendientes de
+    | provisionamiento. Requiere access.grant.
+    |
+    */
+
+    public function viewGrantQueue(User $user): bool
+    {
+        return $user->status === 'active'
+            && $user->hasPermission('access.grant');
+    }
+
+    /*
+    |--------------------------------------------------------------------------
     | APROBAR O RECHAZAR UNA SOLICITUD
     |--------------------------------------------------------------------------
     */

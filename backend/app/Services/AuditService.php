@@ -72,6 +72,56 @@ class AuditService
     }
 
     /*
+     * FASE 20 - Activación de identidades.
+     *
+     * Nunca se registra la contraseña
+     * temporal ni ningún secreto.
+     */
+    public function identityActivated(
+        User $actor,
+        User $target,
+        string $previousStatus,
+        ?string $ipAddress
+    ): void {
+        $this->write(
+            $actor,
+            'identity.activated',
+            $target,
+            [
+                'previous_status' => $previousStatus,
+                'new_status' => 'active',
+                'credential_reset' => true,
+            ],
+            $ipAddress
+        );
+    }
+
+    /*
+     * FASE 20 - Cambio de roles.
+     */
+    public function identityRolesChanged(
+        User $actor,
+        User $target,
+        array $previousRoles,
+        array $newRoles,
+        array $removedApproverResourceIds,
+        ?string $ipAddress
+    ): void {
+        $this->write(
+            $actor,
+            'identity.roles_changed',
+            $target,
+            [
+                'previous_roles' => array_values($previousRoles),
+                'new_roles' => array_values($newRoles),
+                'removed_approver_resource_ids' =>
+                    array_values($removedApproverResourceIds),
+            ],
+            $ipAddress
+        );
+    }
+
+    /*
     |--------------------------------------------------------------------------
     | DEPARTAMENTOS
     |--------------------------------------------------------------------------
@@ -229,6 +279,32 @@ class AuditService
             [
                 'approver_user_id' => $approver->id,
                 'assigned_by_user_id' => $actor->id,
+            ],
+            $ipAddress
+        );
+    }
+
+    /*
+     * FASE 20 - Retiro de responsables.
+     *
+     * $reason distingue un retiro manual
+     * de uno automático por pérdida de rol.
+     */
+    public function resourceApproverRemoved(
+        User $actor,
+        Resource $resource,
+        User $approver,
+        string $reason,
+        ?string $ipAddress
+    ): void {
+        $this->write(
+            $actor,
+            'resource.approver_removed',
+            $resource,
+            [
+                'approver_user_id' => $approver->id,
+                'removed_by_user_id' => $actor->id,
+                'reason' => $reason,
             ],
             $ipAddress
         );

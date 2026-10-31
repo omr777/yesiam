@@ -78,4 +78,33 @@ class ResourcePolicy
             && $actor->hasPermission('resources.manage')
             && $resource->is_active;
     }
+
+    /*
+    |--------------------------------------------------------------------------
+    | FASE 20 - CONSULTAR RESPONSABLES
+    |--------------------------------------------------------------------------
+    |
+    | Se permite también en recursos
+    | inactivos, para conservar trazabilidad.
+    |
+    */
+
+    public function viewApprovers(
+        User $actor,
+        Resource $resource
+    ): bool {
+        return $actor->status === 'active'
+            && $actor->hasPermission('resources.manage');
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | FASE 20 - INCLUIR RECURSOS INACTIVOS
+    |--------------------------------------------------------------------------
+    */
+
+    public function viewInactive(User $actor): bool
+    {
+        return $actor->hasPermission('resources.manage');
+    }
 }

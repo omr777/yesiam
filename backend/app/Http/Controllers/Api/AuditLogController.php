@@ -69,7 +69,13 @@ class AuditLogController extends Controller
         }
 
         // Mostrar primero los eventos más recientes.
+        /*
+         * FASE 20: incluir el nombre del actor
+         * para que la bitácora sea legible.
+         * Solo id y nombre; nunca el correo.
+         */
         $logs = $query
+            ->with('actor:id,name')
             ->orderByDesc('created_at')
             ->orderByDesc('id')
             ->paginate($validated['per_page'] ?? 20);

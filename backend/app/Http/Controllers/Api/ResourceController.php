@@ -31,12 +31,30 @@ class ResourceController extends Controller
     |--------------------------------------------------------------------------
     */
 
-    public function index(): JsonResponse
+    public function index(Request $request): JsonResponse
     {
         Gate::authorize('viewAny', Resource::class);
 
+        /*
+         * FASE 20
+         *
+         * Por defecto solo recursos activos.
+         *
+         * Quien administra recursos puede pedir
+         * también los inactivos con
+         * ?include_inactive=1 para conservar
+         * trazabilidad del catálogo.
+         */
+        $includeInactive =
+            $request->boolean('include_inactive')
+            && Gate::allows('viewInactive', Resource::class);
+
         $resources = Resource::query()
-            ->where('is_active', true)
+            ->when(
+                ! $includeInactive,
+                fn ($query) => $query->where('is_active', true)
+            )
+            ->orderByDesc('is_active')
             ->orderBy('name')
             ->get();
 

@@ -14,6 +14,10 @@ use App\Http\Controllers\Api\AccessDecisionController;
 use App\Http\Controllers\Api\AccessGrantController;
 use App\Http\Controllers\Api\AccessRevocationController;
 use App\Http\Controllers\Api\UserAccessGrantController;
+use App\Http\Controllers\Api\CurrentUserController;
+use App\Http\Controllers\Api\IdentityAdministrationController;
+use App\Http\Controllers\Api\RoleController;
+use App\Http\Controllers\Api\DashboardController;
 
 /*
 |--------------------------------------------------------------------------
@@ -39,14 +43,18 @@ Route::get('/health', function () {
 |
 | Requiere autenticación y cuenta activa.
 |
+| FASE 20: incluye departamento, roles y
+| permisos efectivos para que Angular
+| adapte la navegación. La autorización
+| real sigue en las políticas.
+|
 */
 
-Route::get('/user', function (Request $request) {
-    return $request->user();
-})->middleware([
-    'auth:sanctum',
-    'account.active',
-]);
+Route::get('/user', [CurrentUserController::class, 'show'])
+    ->middleware([
+        'auth:sanctum',
+        'account.active',
+    ]);
 
 /*
 |--------------------------------------------------------------------------
@@ -129,6 +137,39 @@ Route::middleware([
     );
 
     /*
+    | FASE 20 - Detalle, activación y roles.
+    */
+
+    Route::get(
+        '/users/{user}',
+        [IdentityAdministrationController::class, 'show']
+    );
+
+    Route::patch(
+        '/users/{user}/activate',
+        [IdentityAdministrationController::class, 'activate']
+    );
+
+    Route::put(
+        '/users/{user}/roles',
+        [IdentityAdministrationController::class, 'updateRoles']
+    );
+
+    Route::get(
+        '/roles',
+        [RoleController::class, 'index']
+    );
+
+    /*
+    | FASE 20 - Resumen del dashboard.
+    */
+
+    Route::get(
+        '/dashboard',
+        [DashboardController::class, 'show']
+    );
+
+    /*
     |--------------------------------------------------------------------------
     | AUDITORÍA
     |--------------------------------------------------------------------------
@@ -182,6 +223,20 @@ Route::middleware([
     );
 
     /*
+    | FASE 20 - Consultar y retirar responsables.
+    */
+
+    Route::get(
+        '/resources/{resource}/approvers',
+        [ResourceApproverController::class, 'index']
+    );
+
+    Route::delete(
+        '/resources/{resource}/approvers/{user}',
+        [ResourceApproverController::class, 'destroy']
+    );
+
+    /*
     |--------------------------------------------------------------------------
     | ELEGIBILIDAD DEPARTAMENTAL - FASE 17
     |--------------------------------------------------------------------------
@@ -226,6 +281,15 @@ Route::middleware([
     Route::get(
         '/access-requests/assigned',
         [AccessRequestController::class, 'assigned']
+    );
+
+    /*
+    | FASE 20 - Cola de concesión.
+    */
+
+    Route::get(
+        '/access-requests/ready-to-grant',
+        [AccessRequestController::class, 'readyToGrant']
     );
 
     Route::post(
