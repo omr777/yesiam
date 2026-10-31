@@ -9,7 +9,7 @@ import { authGuard } from './core/auth/auth.guard';
 | YESIAM - RUTAS PRINCIPALES
 |--------------------------------------------------------------------------
 |
-| FASE 19.4.10
+| FASE 19.5.6
 |
 | /sign-in
 |   Pantalla pública de autenticación.
@@ -19,6 +19,9 @@ import { authGuard } from './core/auth/auth.guard';
 |
 | /identities
 |   Directorio de identidades.
+|
+| /identities/new
+|   Alta de identidades (Joiner).
 |
 | SEGURIDAD:
 |
@@ -71,6 +74,7 @@ export const routes: Routes = [
   |
   | - Dashboard
   | - Identidades
+  | - Alta de identidades (Joiner)
   |
   | Los demás módulos se incorporarán
   | conforme sean implementados.
@@ -107,7 +111,42 @@ export const routes: Routes = [
 
       /*
       |--------------------------------------------------------------------------
-      | IDENTITY MANAGEMENT
+      | IDENTITY MANAGEMENT - JOINER
+      |--------------------------------------------------------------------------
+      |
+      | GET  /api/departments
+      | POST /api/users
+      |
+      | La creación requiere:
+      |
+      | - Sesión válida de Sanctum.
+      | - Cuenta activa.
+      | - Permiso departments.view
+      |   para cargar el catálogo.
+      | - Permiso users.manage
+      |   para crear la identidad.
+      |
+      | Estas comprobaciones se
+      | realizan en Laravel.
+      |
+      */
+
+      {
+        path: 'identities/new',
+
+        title: 'Nueva identidad | YESIAM',
+
+        canActivate: [authGuard],
+
+        loadComponent: () =>
+          import('./features/identities/identity-create').then(
+            (module) => module.IdentityCreate
+          ),
+      },
+
+      /*
+      |--------------------------------------------------------------------------
+      | IDENTITY MANAGEMENT - DIRECTORIO
       |--------------------------------------------------------------------------
       |
       | GET /api/users

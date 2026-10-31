@@ -31,9 +31,11 @@ import type {
 | YESIAM - IDENTITY LIST TESTS
 |--------------------------------------------------------------------------
 |
-| FASE 19.4.9
+| FASE 19.5.8
 |
 | Pruebas del componente IdentityList.
+|
+| 19.5.8: acceso al formulario Joiner.
 |
 | Validamos:
 |
@@ -50,6 +52,7 @@ import type {
 | - Errores 401, 403 y 422.
 | - Errores de conexión y reintentos.
 | - Cancelación de solicitudes anteriores.
+| - Enlace al alta de identidades (Joiner).
 |
 | No se realizan peticiones HTTP reales.
 |
@@ -736,5 +739,70 @@ describe('IdentityList', () => {
     expect(component.identities().length).toBe(1);
 
     expect(component.identities()[0].id).toBe(1);
+  });
+
+  /*
+  |--------------------------------------------------------------------------
+  | PRUEBA 16 - ACCESO AL JOINER
+  |--------------------------------------------------------------------------
+  |
+  | El encabezado ofrece el acceso
+  | al formulario de alta.
+  |
+  */
+
+  it('should link to the Joiner form from the directory header', () => {
+    loadInitialData();
+
+    const joinerLink: HTMLAnchorElement | null =
+      fixture.nativeElement.querySelector(
+        '.heading a.new-identity'
+      );
+
+    expect(joinerLink).not.toBeNull();
+
+    expect(
+      joinerLink!.getAttribute('href')
+    ).toBe('/identities/new');
+
+    expect(
+      joinerLink!.textContent
+    ).toContain('Nueva identidad');
+  });
+
+  /*
+  |--------------------------------------------------------------------------
+  | PRUEBA 17 - OCULTAR JOINER SIN PERMISOS
+  |--------------------------------------------------------------------------
+  |
+  | El directorio y el alta requieren
+  | users.manage. Si Laravel respondió 403,
+  | no ofrecemos una acción que también
+  | será rechazada.
+  |
+  | Laravel sigue siendo quien autoriza.
+  |
+  */
+
+  it('should hide the Joiner link when the directory is forbidden', () => {
+    expectUsersRequest().flush(
+      {
+        message: 'Forbidden.',
+      },
+      {
+        status: 403,
+        statusText: 'Forbidden',
+      }
+    );
+
+    fixture.detectChanges();
+
+    expect(component.errorStatus()).toBe(403);
+
+    expect(
+      fixture.nativeElement.querySelector(
+        'a.new-identity'
+      )
+    ).toBeNull();
   });
 });

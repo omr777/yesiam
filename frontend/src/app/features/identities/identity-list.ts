@@ -35,9 +35,12 @@ import {
 | YESIAM - IDENTITY MANAGEMENT
 |--------------------------------------------------------------------------
 |
-| FASE 19.4.8
+| FASE 19.5.7
 |
 | Componente de consulta de identidades.
+|
+| 19.5.7: acceso al alta de identidades
+| (Joiner) desde el encabezado.
 |
 | Incluye:
 |
@@ -48,6 +51,7 @@ import {
 | - Estados de carga.
 | - Manejo de errores HTTP.
 | - Protección frente a respuestas obsoletas.
+| - Acceso al formulario Joiner.
 |
 | SEGURIDAD:
 |
@@ -84,6 +88,26 @@ import {
             en YESIAM.
           </p>
         </div>
+
+        <!--
+        Ocultamos el acceso al Joiner cuando
+        Laravel ya respondió 403: la consulta
+        y el alta requieren users.manage.
+
+        Es solo experiencia de usuario;
+        Laravel vuelve a autorizar el alta.
+        -->
+
+        @if (errorStatus() !== 403) {
+
+          <a
+            class="primary-button new-identity"
+            routerLink="/identities/new"
+          >
+            + Nueva identidad
+          </a>
+
+        }
       </header>
 
       <!--
@@ -382,7 +406,25 @@ import {
     }
 
     .heading {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      flex-wrap: wrap;
+      gap: 16px;
       margin-bottom: 24px;
+    }
+
+    .new-identity {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      box-sizing: border-box;
+      min-height: 40px;
+      padding: 8px 14px;
+      border-radius: 8px;
+      font-weight: 600;
+      text-decoration: none;
+      white-space: nowrap;
     }
 
     h1 {
@@ -569,7 +611,8 @@ import {
       }
 
       .field,
-      .actions {
+      .actions,
+      .new-identity {
         width: 100%;
       }
 
