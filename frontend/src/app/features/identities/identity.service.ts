@@ -6,7 +6,7 @@ import {
   HttpParams,
 } from '@angular/common/http';
 
-import { Observable } from 'rxjs';
+import { Observable, map } from 'rxjs';
 
 /*
 |--------------------------------------------------------------------------
@@ -57,6 +57,12 @@ export interface IdentityFilters {
   status?: IdentityStatus | '';
   page?: number;
   perPage?: number;
+
+  /*
+   * FASE 21: filtrar por permiso efectivo,
+   * por ejemplo access.approve.
+   */
+  permission?: string;
 }
 
 /*
@@ -121,6 +127,112 @@ export interface CreatedIdentity extends Identity {
 export interface CreateIdentityResponse {
   message: string;
   data: CreatedIdentity;
+}
+
+/*
+|--------------------------------------------------------------------------
+| FASE 21 - DETALLE, ACTIVACIÓN, ROLES, MOVER Y LEAVER
+|--------------------------------------------------------------------------
+*/
+
+export interface RoleSummary {
+  code: string;
+  name: string;
+}
+
+export interface RoleDefinition extends RoleSummary {
+  permissions: string[];
+}
+
+export interface IdentityDetail extends Identity {
+  department: {
+    id: number;
+    name: string;
+    code: string;
+    is_active: boolean;
+  } | null;
+  roles: RoleSummary[];
+  managed_resources: {
+    id: number;
+    name: string;
+    code: string;
+    is_active: boolean;
+  }[];
+  active_access_grants_count: number;
+  created_at: string | null;
+}
+
+export interface ActivationResponse {
+  message: string;
+  data: {
+    id: number;
+    status: IdentityStatus;
+    temporary_password: string;
+  };
+}
+
+export interface RolesUpdateResponse {
+  message: string;
+  data: {
+    id: number;
+    roles: string[];
+    changed: boolean;
+    removed_approver_resource_ids: number[];
+  };
+}
+
+export interface DepartmentChangeResponse {
+  message: string;
+  data: {
+    id: number;
+    name: string;
+    previous_department_id: number | null;
+    department_id: number;
+    revoked_access_grants_count: number;
+  };
+}
+
+export interface DeactivationResponse {
+  message: string;
+  data: {
+    id: number;
+    status: 'disabled';
+    revoked_access_grants_count: number;
+  };
+}
+
+export type GrantStatus = 'active' | 'revoked';
+
+export interface AccessGrantItem {
+  id: number;
+  status: GrantStatus;
+  resource: {
+    id: number;
+    name: string;
+    code: string;
+    is_active: boolean;
+  } | null;
+  access_request: {
+    id: number;
+    status: string;
+    decided_at: string | null;
+  } | null;
+  granted_at: string | null;
+  granted_by: { id: number; name: string } | null;
+  revoked_at: string | null;
+  revoked_by: { id: number; name: string } | null;
+}
+
+export interface AccessGrantInventory {
+  message: string;
+  user: { id: number; name: string };
+  data: AccessGrantItem[];
+  pagination: {
+    current_page: number;
+    per_page: number;
+    total: number;
+    last_page: number;
+  };
 }
 
 /*
@@ -231,6 +343,13 @@ export class IdentityService {
       );
     }
 
+    if (filters.permission) {
+      params = params.set(
+        'permission',
+        filters.permission
+      );
+    }
+
     /*
      * No transformamos los errores 401/403
      * en listas vacías.
@@ -309,6 +428,132 @@ export class IdentityService {
       this.endpoint,
       body,
       this.requestOptions
+    );
+  }
+  /*
+  |--------------------------------------------------------------------------
+  | FASE 21 - DETALLE
+  |--------------------------------------------------------------------------
+  */
+
+  get(id: number): Observable<IdentityDetail> {
+    return this.http.get<{ data: IdentityDetail }>(
+      `${this.endpoint}/${id}`,
+      this.requestOptions
+    ).pipe(
+      map((response) => response.data)
+    );
+  }
+
+  /*
+  |--------------------------------------------------------------------------
+  | FASE 21 - ACTIVACIÓN
+  |--------------------------------------------------------------------------
+  |
+  | Laravel devuelve una contraseña temporal
+  | una sola vez. Angular la muestra y no la
+  | guarda en ningún almacenamiento.
+  |
+  */
+
+  activate(id: number): Observable<ActivationResponse> {
+    return this.http.patch<ActivationResponse>(
+      `${this.endpoint}/${id}/activate`,
+      {},
+      this.requestOptions
+    );
+  }
+
+  /*
+  |--------------------------------------------------------------------------
+  | FASE 21 - MOVER
+  |--------------------------------------------------------------------------
+  */
+
+  changeDepartment(
+    id: number,
+    departmentId: number
+  ): Observable<DepartmentChangeResponse> {
+    return this.http.patch<DepartmentChangeResponse>(
+      `${this.endpoint}/${id}/department`,
+      { department_id: departmentId },
+      this.requestOptions
+    );
+  }
+
+  /*
+  |--------------------------------------------------------------------------
+  | FASE 21 - LEAVER
+  |--------------------------------------------------------------------------
+  */
+
+  deactivate(id: number): Observable<DeactivationResponse> {
+    return this.http.patch<DeactivationResponse>(
+      `${this.endpoint}/${id}/deactivate`,
+      {},
+      this.requestOptions
+    );
+  }
+
+  /*
+  |--------------------------------------------------------------------------
+  | FASE 21 - ROLES
+  |--------------------------------------------------------------------------
+  */
+
+  listRoles(): Observable<RoleDefinition[]> {
+    return this.http.get<{ data: RoleDefinition[] }>(
+      '/api/roles',
+      this.requestOptions
+    ).pipe(
+      map((response) => response.data)
+    );
+  }
+
+  updateRoles(
+    id: number,
+    roles: string[]
+  ): Observable<RolesUpdateResponse> {
+    return this.http.put<RolesUpdateResponse>(
+      `${this.endpoint}/${id}/roles`,
+      { roles },
+      this.requestOptions
+    );
+  }
+
+  /*
+  |--------------------------------------------------------------------------
+  | FASE 21 - INVENTARIO DE ACCESOS
+  |--------------------------------------------------------------------------
+  |
+  | Sirve tanto para el inventario propio
+  | (Mis accesos) como para el de otra
+  | identidad (requiere access.view_all).
+  |
+  */
+
+  accessGrants(
+    userId: number,
+    filters: {
+      status?: GrantStatus | '';
+      page?: number;
+      perPage?: number;
+    } = {}
+  ): Observable<AccessGrantInventory> {
+    let params = new HttpParams()
+      .set('page', String(filters.page ?? 1))
+      .set('per_page', String(filters.perPage ?? 20));
+
+    if (filters.status) {
+      params = params.set('status', filters.status);
+    }
+
+    return this.http.get<AccessGrantInventory>(
+      `${this.endpoint}/${userId}/access-grants`,
+      {
+        ...this.requestOptions,
+        params,
+      }
     );
   }
 }

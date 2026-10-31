@@ -1,4 +1,10 @@
-import { Component, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  inject,
+  signal,
+} from '@angular/core';
 
 import {
   RouterLink,
@@ -6,68 +12,110 @@ import {
   RouterOutlet,
 } from '@angular/router';
 
+import {
+  AuthService,
+  Permission,
+} from '../core/auth/auth.service';
+
 import { LogoutButton } from '../core/auth/logout-button';
+
+import { ToastOutlet } from '../shared/ui/toast-outlet';
 
 /*
 |--------------------------------------------------------------------------
 | YESIAM - MAIN APPLICATION LAYOUT
 |--------------------------------------------------------------------------
 |
-| Fase 19.4.11
+| FASE 21
 |
 | Responsabilidades:
 |
-| - Mostrar el sidebar empresarial.
-| - Mostrar el encabezado.
-| - Contener las páginas mediante RouterOutlet.
-| - Permitir navegación a las rutas implementadas.
-| - Adaptar el menú a dispositivos móviles.
-| - Incorporar el cierre de sesión con Laravel Sanctum.
+| - Navegación agrupada por el trabajo que
+|   hace cada perfil (no por tabla de BD).
+| - Mostrar solo los módulos que los permisos
+|   de la sesión permiten usar.
+| - Mostrar quién está trabajando: nombre,
+|   departamento y roles.
+| - Menú adaptable a móviles.
+| - Cierre de sesión con Laravel Sanctum.
 |
-| La autorización de operaciones IAM
-| seguirá siendo responsabilidad de Laravel.
+| Ocultar un módulo es experiencia de usuario.
+| Laravel sigue autorizando cada operación.
 |
 */
+
+interface NavItem {
+  path: string;
+  label: string;
+  icon: string;
+  exact?: boolean;
+  permissions?: Permission[];
+}
+
+interface NavGroup {
+  label: string | null;
+  items: NavItem[];
+}
+
+/*
+ * Íconos de trazo, 20x20.
+ */
+const ICONS: Record<string, string> = {
+  home: 'M3 9.5 10 4l7 5.5V16a1 1 0 0 1-1 1h-3.5v-4.5h-5V17H4a1 1 0 0 1-1-1V9.5Z',
+  request: 'M10 4v12M4 10h12',
+  keys: 'M12.5 7.5a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0ZM9 11v6m0-3h3m-3 2h2',
+  catalog: 'M4 5h12M4 10h12M4 15h12',
+  inbox: 'M3 11h4l1.5 2h3L13 11h4M4 5h12l1 6v5H3v-5l1-6Z',
+  grant: 'm5 10 3 3 7-7M4 4h12v12H4z',
+  people: 'M7.5 9a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5ZM2.5 16c0-2.8 2.2-4.5 5-4.5s5 1.7 5 4.5M13 4.2a2.5 2.5 0 0 1 0 4.6M14.5 11.7c1.8.4 3 1.9 3 4.3',
+  building: 'M4 17V4h8v13M12 8h4v9M7 7h2M7 10h2M7 13h2',
+  audit: 'M6 3h6l3 3v11H6zM12 3v3h3M8.5 10h4M8.5 13h4',
+};
 
 @Component({
   selector: 'app-main-layout',
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     RouterOutlet,
     RouterLink,
     RouterLinkActive,
     LogoutButton,
+    ToastOutlet,
   ],
   template: `
     <div class="app-shell">
 
-      <!-- SIDEBAR -->
-      <aside
-        class="sidebar"
-        aria-label="Barra lateral de YESIAM"
-      >
+      <aside class="sidebar" aria-label="Barra lateral de YESIAM">
 
-        <!-- IDENTIDAD DE MARCA -->
         <div class="brand-row">
+          <a class="brand" routerLink="/" (click)="closeMobileMenu()">
+            <span class="brand-mark" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="22" height="22">
+                <path
+                  d="M12 2.5 4 6v5.5c0 4.6 3.3 8.6 8 10 4.7-1.4 8-5.4 8-10V6l-8-3.5Z"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.6"
+                  stroke-linejoin="round"
+                />
+                <path
+                  d="m8.5 12 2.4 2.4 4.6-4.8"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </span>
 
-          <div class="brand">
-            <div
-              class="brand-symbol"
-              aria-hidden="true"
-            >
-              Y
-            </div>
-
-            <div class="brand-text">
+            <span class="brand-text">
               <strong>YESIAM</strong>
+              <span>Gobierno de identidades</span>
+            </span>
+          </a>
 
-              <span>
-                Identity & Access Management
-              </span>
-            </div>
-          </div>
-
-          <!-- BOTÓN PARA DISPOSITIVOS MÓVILES -->
           <button
             type="button"
             class="mobile-menu-button"
@@ -78,241 +126,97 @@ import { LogoutButton } from '../core/auth/logout-button';
           >
             {{ mobileMenuOpen() ? 'Cerrar' : 'Menú' }}
           </button>
-
         </div>
 
-        <span class="workspace-label">
-          WORKSPACE
-        </span>
-
-        <!-- NAVEGACIÓN -->
-        <nav
+        <div
           id="yesiam-navigation"
-          class="navigation"
-          aria-label="Módulos de YESIAM"
+          class="navigation-panel"
           [class.is-open]="mobileMenuOpen()"
         >
 
-          <!-- DASHBOARD: RUTA FUNCIONAL -->
-          <a
-            class="nav-item"
-            routerLink="/"
-            routerLinkActive="selected"
-            [routerLinkActiveOptions]="{ exact: true }"
-            ariaCurrentWhenActive="page"
-            title="Dashboard"
-            (click)="closeMobileMenu()"
-          >
-            <span
-              class="nav-icon"
-              aria-hidden="true"
-            >
-              DB
-            </span>
+          <nav class="navigation" aria-label="Módulos de YESIAM">
 
-            <span class="nav-label">
-              Dashboard
-            </span>
-          </a>
+            @for (group of visibleGroups(); track $index) {
 
-          <!-- IDENTITY MANAGEMENT -->
-          <span class="nav-section">
-            IDENTITY MANAGEMENT
-          </span>
+              @if (group.label) {
+                <span class="nav-section">{{ group.label }}</span>
+              }
 
-          <!-- IDENTIDADES: RUTA FUNCIONAL -->
-          <a
-            class="nav-item"
-            routerLink="/identities"
-            routerLinkActive="selected"
-            [routerLinkActiveOptions]="{ exact: true }"
-            ariaCurrentWhenActive="page"
-            title="Identidades"
-            (click)="closeMobileMenu()"
-          >
-            <span class="nav-icon" aria-hidden="true">
-              ID
-            </span>
+              @for (item of group.items; track item.path) {
+                <a
+                  class="nav-item"
+                  [routerLink]="item.path"
+                  routerLinkActive="selected"
+                  [routerLinkActiveOptions]="{ exact: item.exact ?? false }"
+                  ariaCurrentWhenActive="page"
+                  (click)="closeMobileMenu()"
+                >
+                  <svg
+                    class="nav-icon"
+                    viewBox="0 0 20 20"
+                    width="18"
+                    height="18"
+                    aria-hidden="true"
+                  >
+                    <path
+                      [attr.d]="icon(item.icon)"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.5"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    />
+                  </svg>
 
-            <span class="nav-label">
-              Identidades
-            </span>
-          </a>
+                  <span class="nav-label">{{ item.label }}</span>
+                </a>
+              }
+            }
 
-          <span
-            class="nav-item nav-item--pending"
-            title="Módulo pendiente de implementar"
-          >
-            <span class="nav-icon" aria-hidden="true">
-              DP
-            </span>
+          </nav>
 
-            <span class="nav-label">
-              Departamentos
-            </span>
-          </span>
+          <section class="session-card" aria-label="Sesión actual">
+            @if (user(); as current) {
+              <div class="session-person">
+                <span class="session-avatar" aria-hidden="true">
+                  {{ initials() }}
+                </span>
 
-          <!-- ACCESS GOVERNANCE -->
-          <span class="nav-section">
-            ACCESS GOVERNANCE
-          </span>
+                <div class="session-text">
+                  <strong>{{ current.name }}</strong>
+                  <span>{{ current.department?.name ?? 'Sin departamento' }}</span>
+                </div>
+              </div>
 
-          <span
-            class="nav-item nav-item--pending"
-            title="Módulo pendiente de implementar"
-          >
-            <span class="nav-icon" aria-hidden="true">
-              RC
-            </span>
+              @if (roleNames().length > 0) {
+                <ul class="session-roles" aria-label="Roles asignados">
+                  @for (role of roleNames(); track role) {
+                    <li>{{ role }}</li>
+                  }
+                </ul>
+              }
+            }
 
-            <span class="nav-label">
-              Recursos
-            </span>
-          </span>
-
-          <span
-            class="nav-item nav-item--pending"
-            title="Módulo pendiente de implementar"
-          >
-            <span class="nav-icon" aria-hidden="true">
-              SO
-            </span>
-
-            <span class="nav-label">
-              Solicitudes de acceso
-            </span>
-          </span>
-
-          <span
-            class="nav-item nav-item--pending"
-            title="Módulo pendiente de implementar"
-          >
-            <span class="nav-icon" aria-hidden="true">
-              AP
-            </span>
-
-            <span class="nav-label">
-              Aprobaciones
-            </span>
-          </span>
-
-          <span
-            class="nav-item nav-item--pending"
-            title="Módulo pendiente de implementar"
-          >
-            <span class="nav-icon" aria-hidden="true">
-              GR
-            </span>
-
-            <span class="nav-label">
-              Concesiones activas
-            </span>
-          </span>
-
-          <!-- SECURITY & COMPLIANCE -->
-          <span class="nav-section">
-            SECURITY & COMPLIANCE
-          </span>
-
-          <span
-            class="nav-item nav-item--pending"
-            title="Módulo pendiente de implementar"
-          >
-            <span class="nav-icon" aria-hidden="true">
-              AU
-            </span>
-
-            <span class="nav-label">
-              Auditoría
-            </span>
-          </span>
-
-        </nav>
-
-        <!-- PIE DEL SIDEBAR -->
-        <div class="sidebar-footer">
-
-          <div class="environment-indicator">
-            <span
-              class="status-dot"
-              aria-hidden="true"
-            ></span>
-
-            Entorno de desarrollo
-          </div>
-
-          <span class="version-label">
-            YESIAM | Frontend en desarrollo
-          </span>
+            <div class="logout-action">
+              <app-logout-button />
+            </div>
+          </section>
 
         </div>
 
       </aside>
 
-      <!-- CONTENIDO PRINCIPAL -->
       <div class="main-area">
-
-        <!-- HEADER -->
-        <header class="topbar">
-
-          <div class="topbar-heading">
-
-            <span class="breadcrumb">
-              YESIAM / Workspace
-            </span>
-
-            <strong>
-              Identity Governance
-            </strong>
-
-          </div>
-
-          <div class="topbar-actions">
-
-            <span class="connection-status">
-              Acceso protegido
-            </span>
-
-            <div
-              class="profile-avatar"
-              aria-label="YESIAM"
-              title="YESIAM"
-            >
-              Y
-            </div>
-
-            <!-- CIERRE DE SESIÓN -->
-            <div class="logout-action">
-              <app-logout-button />
-            </div>
-
-          </div>
-
-        </header>
-
-        <!-- PÁGINAS DE ANGULAR -->
-        <main
-          class="page-content"
-          id="main-content"
-        >
+        <main class="page-content" id="main-content">
           <router-outlet />
         </main>
 
-        <!-- FOOTER -->
         <footer class="main-footer">
-
-          <span>
-            YESIAM — Your Expert System,
-            Identity, Access and Monitoring
-          </span>
-
-          <span>
-            Development Environment
-          </span>
-
+          YESIAM — Your Expert System, Identity, Access and Monitoring
         </footer>
-
       </div>
+
+      <app-toast-outlet />
 
     </div>
   `,
@@ -320,197 +224,223 @@ import { LogoutButton } from '../core/auth/logout-button';
     :host {
       display: block;
       min-height: 100vh;
-      font-family: Inter, "Segoe UI", Arial, sans-serif;
-      color: #17243b;
-    }
-
-    * {
-      box-sizing: border-box;
     }
 
     .app-shell {
       display: grid;
       grid-template-columns: 264px minmax(0, 1fr);
       min-height: 100vh;
-      background: #f6f8fc;
     }
 
-    /* SIDEBAR */
+    /*
+    | SIDEBAR
+    */
 
     .sidebar {
+      position: sticky;
+      top: 0;
+      align-self: start;
       display: flex;
       flex-direction: column;
-      min-width: 0;
-      padding: 26px 16px 20px;
-      color: #b5c1d6;
-      background: #101b30;
+      height: 100vh;
+      background: var(--ink);
+      color: var(--text-on-ink);
+      border-right: 1px solid var(--ink-line);
     }
 
     .brand-row {
       display: flex;
-      align-items: center;
       justify-content: space-between;
-      margin-bottom: 35px;
+      align-items: center;
+      gap: 12px;
+      padding: 20px 18px 18px;
     }
 
     .brand {
       display: flex;
       align-items: center;
-      gap: 12px;
-      min-width: 0;
-      padding: 0 12px;
+      gap: 11px;
+      color: inherit;
+      text-decoration: none;
     }
 
-    .brand-symbol {
+    .brand-mark {
       display: grid;
-      flex: 0 0 42px;
       place-items: center;
-      width: 42px;
-      height: 42px;
-      border-radius: 12px;
-      background: #5b74ec;
-      color: #fff;
-      font-size: 24px;
-      font-weight: 800;
+      width: 38px;
+      height: 38px;
+      border-radius: 9px;
+      background: var(--verified);
+      color: #ffffff;
     }
 
     .brand-text {
       display: flex;
       flex-direction: column;
-      gap: 3px;
     }
 
     .brand-text strong {
-      color: #fff;
-      font-size: 19px;
+      font-size: 17px;
+      font-weight: 700;
       letter-spacing: 0.04em;
     }
 
     .brand-text span {
-      font-size: 9px;
-      letter-spacing: 0.02em;
+      font-size: 12px;
+      color: var(--text-on-ink-muted);
     }
 
     .mobile-menu-button {
       display: none;
+      min-height: 34px;
+      padding: 6px 12px;
+      border: 1px solid var(--ink-line);
+      border-radius: var(--radius-control);
+      background: transparent;
+      color: var(--text-on-ink);
+      font: inherit;
+      font-size: 13px;
+      cursor: pointer;
     }
 
-    .workspace-label,
-    .nav-section {
-      display: block;
-      padding: 0 14px;
-      font-size: 10px;
-      font-weight: 700;
-      letter-spacing: 0.12em;
-    }
-
-    .workspace-label {
-      margin-bottom: 18px;
-      color: #8194b5;
+    .navigation-panel {
+      display: flex;
+      flex: 1;
+      flex-direction: column;
+      min-height: 0;
     }
 
     .navigation {
-      display: flex;
-      flex-direction: column;
-      gap: 5px;
+      flex: 1;
+      overflow-y: auto;
+      padding: 4px 12px 16px;
     }
 
     .nav-section {
-      margin: 25px 0 9px;
-      color: #788ba9;
+      display: block;
+      margin: 18px 10px 6px;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-on-ink-muted);
     }
 
     .nav-item {
       display: flex;
       align-items: center;
-      gap: 13px;
-      min-height: 44px;
-      padding: 0 14px;
-      border-radius: 9px;
-      color: #b5c1d6;
-      font-size: 13px;
+      gap: 11px;
+      min-height: 38px;
+      padding: 8px 10px;
+      border-radius: var(--radius-control);
+      color: #c9d6d6;
+      font-size: 14px;
       text-decoration: none;
+      position: relative;
     }
 
-    a.nav-item {
-      cursor: pointer;
-      transition:
-        background 150ms ease,
-        color 150ms ease;
-    }
-
-    a.nav-item:hover {
-      background: #1d2c47;
-      color: #fff;
-    }
-
-    a.nav-item:focus-visible {
-      outline: 2px solid #9db0ff;
-      outline-offset: 2px;
+    .nav-item:hover {
+      background: var(--ink-soft);
+      color: #ffffff;
     }
 
     .nav-item.selected {
-      background: #243453;
-      color: #fff;
+      background: var(--ink-soft);
+      color: #ffffff;
       font-weight: 600;
     }
 
-    .nav-item--pending {
-      color: #8493ad;
-      cursor: default;
+    .nav-item.selected::before {
+      content: '';
+      position: absolute;
+      left: -12px;
+      top: 8px;
+      bottom: 8px;
+      width: 3px;
+      border-radius: 0 3px 3px 0;
+      background: #5eead4;
     }
 
     .nav-icon {
-      display: inline-grid;
-      flex: 0 0 24px;
-      place-items: center;
-      width: 24px;
-      height: 24px;
-      border-radius: 6px;
-      background: #263651;
-      color: #aabaff;
-      font-size: 10px;
-      font-weight: 800;
+      flex: 0 0 18px;
+      color: var(--text-on-ink-muted);
     }
 
     .nav-item.selected .nav-icon {
-      background: #394e80;
-      color: #fff;
+      color: #5eead4;
     }
 
-    .nav-label {
+    /*
+    | TARJETA DE SESIÓN
+    */
+
+    .session-card {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin: 0 12px 14px;
+      padding: 14px;
+      border: 1px solid var(--ink-line);
+      border-radius: var(--radius-panel);
+      background: var(--ink-soft);
+    }
+
+    .session-person {
+      display: flex;
+      align-items: center;
+      gap: 10px;
       min-width: 0;
     }
 
-    .sidebar-footer {
+    .session-avatar {
+      display: grid;
+      flex: 0 0 34px;
+      place-items: center;
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      background: #234350;
+      color: #5eead4;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .session-text {
       display: flex;
       flex-direction: column;
-      gap: 14px;
-      margin-top: auto;
-      padding: 28px 13px 0;
+      min-width: 0;
     }
 
-    .environment-indicator {
-      display: flex;
-      align-items: center;
-      gap: 9px;
+    .session-text strong {
+      overflow: hidden;
+      font-size: 14px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .session-text span {
       font-size: 12px;
+      color: var(--text-on-ink-muted);
     }
 
-    .status-dot {
-      flex: 0 0 8px;
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: #45ce9d;
+    .session-roles {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
     }
 
-    .version-label {
-      color: #788ba9;
-      font-size: 10px;
+    .session-roles li {
+      padding: 2px 8px;
+      border: 1px solid var(--ink-line);
+      border-radius: 999px;
+      font-size: 11px;
+      color: #c9d6d6;
     }
 
-    /* CONTENIDO */
+    /*
+    | CONTENIDO
+    */
 
     .main-area {
       display: flex;
@@ -518,232 +448,177 @@ import { LogoutButton } from '../core/auth/logout-button';
       min-width: 0;
     }
 
-    .topbar {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 16px;
-      min-height: 84px;
-      padding: 18px 36px;
-      border-bottom: 1px solid #e7eaf1;
-      background: #fff;
-    }
-
-    .topbar-heading {
-      display: flex;
-      flex-direction: column;
-      gap: 7px;
-    }
-
-    .breadcrumb {
-      color: #8793a7;
-      font-size: 12px;
-    }
-
-    .topbar-heading strong {
-      font-size: 14px;
-    }
-
-    .topbar-actions {
-      display: flex;
-      align-items: center;
-      gap: 18px;
-    }
-
-    .connection-status {
-      padding: 8px 11px;
-      border: 1px solid #e5e9f2;
-      border-radius: 8px;
-      color: #78869b;
-      font-size: 11px;
-    }
-
-    .profile-avatar {
-      display: grid;
-      place-items: center;
-      flex: 0 0 36px;
-      width: 36px;
-      height: 36px;
-      border-radius: 50%;
-      background: #e9edff;
-      color: #536bd5;
-      font-size: 15px;
-      font-weight: 700;
-    }
-
-    /* CIERRE DE SESIÓN */
-
-    .logout-action {
-      flex: 0 0 150px;
-      width: 150px;
-    }
-
     .page-content {
       flex: 1;
-      width: 100%;
-      max-width: 1400px;
-      margin: 0 auto;
-      padding: 42px 36px;
+      padding: 32px 36px 40px;
     }
 
     .main-footer {
-      display: flex;
-      justify-content: space-between;
-      gap: 16px;
-      padding: 20px 36px;
-      color: #91a0b3;
-      font-size: 11px;
+      padding: 18px 36px;
+      border-top: 1px solid var(--line);
+      font-size: 12px;
+      color: var(--text-faint);
     }
-
-    /* TABLET */
 
     @media (max-width: 900px) {
-      .app-shell {
-        grid-template-columns: 76px minmax(0, 1fr);
-      }
-
-      .sidebar {
-        padding-inline: 10px;
-      }
-
-      .brand-row {
-        justify-content: center;
-      }
-
-      .brand {
-        justify-content: center;
-        padding-inline: 0;
-      }
-
-      .brand-text,
-      .workspace-label,
-      .nav-section,
-      .nav-label,
-      .sidebar-footer {
-        display: none;
-      }
-
-      .nav-item {
-        justify-content: center;
-        padding: 0;
-      }
-
-      .topbar,
-      .page-content,
-      .main-footer {
-        padding-inline: 22px;
-      }
-    }
-
-    /* MÓVIL */
-
-    @media (max-width: 600px) {
       .app-shell {
         grid-template-columns: minmax(0, 1fr);
       }
 
       .sidebar {
-        padding: 12px 18px;
+        position: sticky;
+        z-index: 30;
+        height: auto;
+        border-right: 0;
       }
 
       .brand-row {
-        justify-content: space-between;
-        margin-bottom: 0;
-      }
-
-      .brand {
-        padding: 0;
-      }
-
-      .brand-text {
-        display: flex;
+        padding: 12px 16px;
       }
 
       .mobile-menu-button {
         display: inline-flex;
         align-items: center;
-        justify-content: center;
-        min-height: 38px;
-        padding: 0 12px;
-        border: 1px solid #445572;
-        border-radius: 8px;
-        background: #263651;
-        color: #fff;
-        font: inherit;
-        font-size: 12px;
-        cursor: pointer;
       }
 
-      .mobile-menu-button:focus-visible {
-        outline: 2px solid #9db0ff;
-        outline-offset: 2px;
-      }
-
-      .navigation {
+      .navigation-panel {
         display: none;
+        max-height: calc(100vh - 62px);
+        overflow-y: auto;
       }
 
-      .navigation.is-open {
+      .navigation-panel.is-open {
         display: flex;
-        margin-top: 20px;
-        padding-bottom: 10px;
-      }
-
-      .navigation.is-open .nav-section,
-      .navigation.is-open .nav-label {
-        display: block;
-      }
-
-      .navigation.is-open .nav-item {
-        justify-content: flex-start;
-        padding: 0 14px;
-      }
-
-      .topbar {
-        min-height: 70px;
-        padding: 14px 18px;
-      }
-
-      .topbar-actions {
-        gap: 8px;
-      }
-
-      .connection-status,
-      .profile-avatar {
-        display: none;
-      }
-
-      .logout-action {
-        flex: 0 0 130px;
-        width: 130px;
       }
 
       .page-content {
-        padding: 28px 18px;
+        padding: 22px 16px 32px;
       }
 
       .main-footer {
-        padding: 18px;
-      }
-
-      .main-footer span:last-child {
-        display: none;
+        padding: 16px;
       }
     }
   `],
 })
 export class MainLayout {
 
-  /*
-   * Angular Signal:
-   * indica si el menú móvil está abierto.
-   */
+  private readonly auth = inject(AuthService);
+
   readonly mobileMenuOpen = signal(false);
 
+  readonly user = this.auth.currentUser;
+
+  private readonly groups: NavGroup[] = [
+    {
+      label: null,
+      items: [
+        { path: '/', label: 'Dashboard', icon: 'home', exact: true },
+      ],
+    },
+    {
+      label: 'Mi espacio',
+      items: [
+        {
+          path: '/requests',
+          label: 'Solicitar acceso',
+          icon: 'request',
+          permissions: ['access.request'],
+        },
+        { path: '/my-access', label: 'Mis accesos', icon: 'keys' },
+      ],
+    },
+    {
+      label: 'Gobierno de accesos',
+      items: [
+        {
+          path: '/resources',
+          label: 'Recursos',
+          icon: 'catalog',
+          permissions: ['resources.view'],
+        },
+        {
+          path: '/approvals',
+          label: 'Aprobaciones',
+          icon: 'inbox',
+          permissions: ['access.approve'],
+        },
+        {
+          path: '/provisioning',
+          label: 'Concesiones',
+          icon: 'grant',
+          permissions: ['access.grant'],
+        },
+      ],
+    },
+    {
+      label: 'Administración',
+      items: [
+        {
+          path: '/identities',
+          label: 'Identidades',
+          icon: 'people',
+          permissions: ['users.manage'],
+        },
+        {
+          path: '/departments',
+          label: 'Departamentos',
+          icon: 'building',
+          permissions: ['departments.view'],
+        },
+      ],
+    },
+    {
+      label: 'Cumplimiento',
+      items: [
+        {
+          path: '/audit',
+          label: 'Auditoría',
+          icon: 'audit',
+          permissions: ['audit.view'],
+        },
+      ],
+    },
+  ];
+
+  /*
+   * Grupos con al menos un módulo permitido.
+   */
+  readonly visibleGroups = computed(() => {
+    this.auth.permissions();
+
+    return this.groups
+      .map((group) => ({
+        ...group,
+        items: group.items.filter(
+          (item) => !item.permissions
+            || this.auth.canAny(item.permissions)
+        ),
+      }))
+      .filter((group) => group.items.length > 0);
+  });
+
+  readonly roleNames = computed(() =>
+    (this.user()?.roles ?? []).map((role) => role.name)
+  );
+
+  readonly initials = computed(() => {
+    const name = this.user()?.name ?? '';
+
+    return name
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part[0]?.toUpperCase() ?? '')
+      .join('');
+  });
+
+  icon(name: string): string {
+    return ICONS[name] ?? '';
+  }
+
   toggleMobileMenu(): void {
-    this.mobileMenuOpen.update(
-      (currentValue) => !currentValue
-    );
+    this.mobileMenuOpen.update((open) => !open);
   }
 
   closeMobileMenu(): void {

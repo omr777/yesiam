@@ -1,6 +1,16 @@
 
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
+import { provideHttpClient } from '@angular/common/http';
+import {
+  HttpTestingController,
+  provideHttpClientTesting,
+} from '@angular/common/http/testing';
+
+import {
+  EMPLOYEE_PERMISSIONS,
+  signInAs,
+} from '../testing/session';
 
 import { MainLayout } from './main-layout';
 
@@ -27,6 +37,8 @@ describe('YESIAM - MainLayout', () => {
       imports: [MainLayout],
       providers: [
         provideRouter([]),
+        provideHttpClient(),
+        provideHttpClientTesting(),
       ],
     }).compileComponents();
   });
@@ -159,4 +171,54 @@ describe('YESIAM - MainLayout', () => {
     ).toBe(false);
   });
 
+
+  /*
+  |--------------------------------------------------------------------------
+  | FASE 21 - NAVEGACIÓN POR PERMISOS
+  |--------------------------------------------------------------------------
+  */
+
+  it('should show only the modules allowed for an employee', () => {
+    signInAs(TestBed.inject(HttpTestingController), {
+      name: 'Ana Torres',
+      roles: [{ code: 'employee', name: 'Empleado' }],
+      permissions: EMPLOYEE_PERMISSIONS,
+    });
+
+    const fixture = TestBed.createComponent(MainLayout);
+    fixture.detectChanges();
+
+    const nav = (fixture.nativeElement as HTMLElement)
+      .querySelector('nav.navigation')!.textContent ?? '';
+
+    expect(nav).toContain('Solicitar acceso');
+    expect(nav).toContain('Mis accesos');
+    expect(nav).toContain('Recursos');
+    expect(nav).not.toContain('Identidades');
+    expect(nav).not.toContain('Aprobaciones');
+    expect(nav).not.toContain('Concesiones');
+    expect(nav).not.toContain('Auditoría');
+  });
+
+  it('should show administration modules and the session card for an admin', () => {
+    signInAs(TestBed.inject(HttpTestingController));
+
+    const fixture = TestBed.createComponent(MainLayout);
+    fixture.detectChanges();
+
+    const element = fixture.nativeElement as HTMLElement;
+    const nav = element.querySelector('nav.navigation')!.textContent ?? '';
+
+    expect(nav).toContain('Identidades');
+    expect(nav).toContain('Departamentos');
+    expect(nav).toContain('Concesiones');
+    expect(nav).toContain('Auditoría');
+
+    const session = element.querySelector('.session-card')!.textContent ?? '';
+
+    expect(session).toContain('Omar García');
+    expect(session).toContain('Tecnología');
+    expect(session).toContain('Administrador IAM');
+    expect(element.querySelector('.session-avatar')!.textContent).toContain('OG');
+  });
 });

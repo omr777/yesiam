@@ -3,37 +3,38 @@ import { Routes } from '@angular/router';
 import { MainLayout } from './layout/main-layout';
 
 import { authGuard } from './core/auth/auth.guard';
+import { permissionGuard } from './core/auth/permission.guard';
 
 /*
 |--------------------------------------------------------------------------
 | YESIAM - RUTAS PRINCIPALES
 |--------------------------------------------------------------------------
 |
-| FASE 19.5.6
+| FASE 21
 |
-| /sign-in
-|   Pantalla pública de autenticación.
-|
-| /
-|   Dashboard principal de YESIAM.
-|
-| /identities
-|   Directorio de identidades.
-|
-| /identities/new
-|   Alta de identidades (Joiner).
+| /sign-in               Inicio de sesión (público).
+| /                      Dashboard.
+| /requests              Solicitar acceso y mis solicitudes.
+| /my-access             Inventario propio.
+| /resources             Catálogo de recursos.
+| /resources/:id         Detalle, elegibilidad y responsables.
+| /approvals             Bandeja del responsable.
+| /provisioning          Cola de concesión.
+| /identities            Directorio.
+| /identities/new        Alta (Joiner).
+| /identities/:id        Ciclo de vida de una identidad.
+| /departments           Departamentos.
+| /audit                 Auditoría.
+| /access-denied         Módulo no disponible para el perfil.
 |
 | SEGURIDAD:
 |
-| Las rutas privadas se encuentran
-| dentro de MainLayout y están
-| protegidas por authGuard.
-|
-| El guard verifica la sesión
-| mediante GET /api/user.
-|
-| Laravel continúa siendo responsable
-| de autorizar cada operación IAM.
+| - authGuard (en MainLayout) verifica la sesión
+|   con GET /api/user, que también entrega los
+|   permisos efectivos.
+| - permissionGuard evita abrir módulos que el
+|   perfil no puede usar.
+| - Laravel sigue autorizando cada operación.
 |
 */
 
@@ -43,12 +44,6 @@ export const routes: Routes = [
   |--------------------------------------------------------------------------
   | AUTENTICACIÓN - RUTA PÚBLICA
   |--------------------------------------------------------------------------
-  |
-  | No aplicamos authGuard aquí.
-  |
-  | Un usuario sin sesión debe poder
-  | acceder al formulario de login.
-  |
   */
 
   {
@@ -66,19 +61,6 @@ export const routes: Routes = [
   |--------------------------------------------------------------------------
   | APLICACIÓN PRINCIPAL - RUTAS PROTEGIDAS
   |--------------------------------------------------------------------------
-  |
-  | El AuthGuard comprueba que existe
-  | una sesión válida de Laravel.
-  |
-  | Los módulos comparten MainLayout:
-  |
-  | - Dashboard
-  | - Identidades
-  | - Alta de identidades (Joiner)
-  |
-  | Los demás módulos se incorporarán
-  | conforme sean implementados.
-  |
   */
 
   {
@@ -90,19 +72,10 @@ export const routes: Routes = [
 
     children: [
 
-      /*
-      |--------------------------------------------------------------------------
-      | DASHBOARD
-      |--------------------------------------------------------------------------
-      */
-
       {
         path: '',
-
         pathMatch: 'full',
-
         title: 'Dashboard | YESIAM',
-
         loadComponent: () =>
           import('./features/dashboard/dashboard').then(
             (module) => module.Dashboard
@@ -110,68 +83,139 @@ export const routes: Routes = [
       },
 
       /*
-      |--------------------------------------------------------------------------
-      | IDENTITY MANAGEMENT - JOINER
-      |--------------------------------------------------------------------------
+      | MI ESPACIO
+      */
+
+      {
+        path: 'requests',
+        title: 'Solicitar acceso | YESIAM',
+        canActivate: [permissionGuard('access.request')],
+        loadComponent: () =>
+          import('./features/access/request-access').then(
+            (module) => module.RequestAccess
+          ),
+      },
+
+      {
+        path: 'my-access',
+        title: 'Mis accesos | YESIAM',
+        loadComponent: () =>
+          import('./features/access/my-access').then(
+            (module) => module.MyAccess
+          ),
+      },
+
+      /*
+      | GOBIERNO DE ACCESOS
+      */
+
+      {
+        path: 'resources',
+        title: 'Recursos | YESIAM',
+        canActivate: [permissionGuard('resources.view')],
+        loadComponent: () =>
+          import('./features/resources/resource-list').then(
+            (module) => module.ResourceList
+          ),
+      },
+
+      {
+        path: 'resources/:id',
+        title: 'Recurso | YESIAM',
+        canActivate: [permissionGuard('resources.view')],
+        loadComponent: () =>
+          import('./features/resources/resource-detail').then(
+            (module) => module.ResourceDetail
+          ),
+      },
+
+      {
+        path: 'approvals',
+        title: 'Aprobaciones | YESIAM',
+        canActivate: [permissionGuard('access.approve')],
+        loadComponent: () =>
+          import('./features/access/approvals').then(
+            (module) => module.Approvals
+          ),
+      },
+
+      {
+        path: 'provisioning',
+        title: 'Concesiones | YESIAM',
+        canActivate: [permissionGuard('access.grant')],
+        loadComponent: () =>
+          import('./features/access/provisioning').then(
+            (module) => module.Provisioning
+          ),
+      },
+
+      /*
+      | ADMINISTRACIÓN
       |
-      | GET  /api/departments
-      | POST /api/users
-      |
-      | La creación requiere:
-      |
-      | - Sesión válida de Sanctum.
-      | - Cuenta activa.
-      | - Permiso departments.view
-      |   para cargar el catálogo.
-      | - Permiso users.manage
-      |   para crear la identidad.
-      |
-      | Estas comprobaciones se
-      | realizan en Laravel.
-      |
+      | Se conserva el authGuard por ruta que
+      | ya tenían las rutas de identidades.
       */
 
       {
         path: 'identities/new',
-
         title: 'Nueva identidad | YESIAM',
-
-        canActivate: [authGuard],
-
+        canActivate: [authGuard, permissionGuard('users.manage')],
         loadComponent: () =>
           import('./features/identities/identity-create').then(
             (module) => module.IdentityCreate
           ),
       },
 
-      /*
-      |--------------------------------------------------------------------------
-      | IDENTITY MANAGEMENT - DIRECTORIO
-      |--------------------------------------------------------------------------
-      |
-      | GET /api/users
-      |
-      | La consulta requiere:
-      |
-      | - Sesión válida de Sanctum.
-      | - Cuenta activa.
-      | - Permiso users.manage.
-      |
-      | Estas comprobaciones se
-      | realizan en Laravel.
-      |
-      */
+      {
+        path: 'identities/:id',
+        title: 'Identidad | YESIAM',
+        canActivate: [authGuard, permissionGuard('users.manage')],
+        loadComponent: () =>
+          import('./features/identities/identity-detail').then(
+            (module) => module.IdentityDetail
+          ),
+      },
 
       {
         path: 'identities',
-
         title: 'Identidades | YESIAM',
-
-        canActivate: [authGuard],
-
+        canActivate: [authGuard, permissionGuard('users.manage')],
         loadComponent: () =>
           import('./features/identities/identity-list').then(
             (module) => module.IdentityList
+          ),
+      },
+
+      {
+        path: 'departments',
+        title: 'Departamentos | YESIAM',
+        canActivate: [permissionGuard('departments.view')],
+        loadComponent: () =>
+          import('./features/departments/department-list').then(
+            (module) => module.DepartmentList
+          ),
+      },
+
+      /*
+      | CUMPLIMIENTO
+      */
+
+      {
+        path: 'audit',
+        title: 'Auditoría | YESIAM',
+        canActivate: [permissionGuard('audit.view')],
+        loadComponent: () =>
+          import('./features/audit/audit-log').then(
+            (module) => module.AuditLog
+          ),
+      },
+
+      {
+        path: 'access-denied',
+        title: 'Sin acceso | YESIAM',
+        loadComponent: () =>
+          import('./shared/ui/access-denied').then(
+            (module) => module.AccessDenied
           ),
       },
 

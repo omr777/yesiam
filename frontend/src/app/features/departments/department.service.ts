@@ -73,6 +73,33 @@ export interface DepartmentsResponse {
 
 /*
 |--------------------------------------------------------------------------
+| FASE 21 - ESCRITURA
+|--------------------------------------------------------------------------
+|
+| Solo se envían name y code. Laravel valida
+| unicidad, formato del código (A-Z, 0-9, _ -)
+| y registra la auditoría.
+|
+*/
+
+export interface DepartmentPayload {
+  name: string;
+  code: string;
+}
+
+export interface DepartmentMutationResponse {
+  message: string;
+  data: Department;
+}
+
+export interface DepartmentDeactivationResponse {
+  message: string;
+  data: Department;
+  revoked_access_grants_count: number;
+}
+
+/*
+|--------------------------------------------------------------------------
 | SERVICIO DE DEPARTAMENTOS
 |--------------------------------------------------------------------------
 */
@@ -164,6 +191,66 @@ export class DepartmentService {
             department.is_active === 1
         )
       )
+    );
+  }
+
+  /*
+  |--------------------------------------------------------------------------
+  | FASE 21 - CREAR
+  |--------------------------------------------------------------------------
+  */
+
+  create(
+    payload: DepartmentPayload
+  ): Observable<DepartmentMutationResponse> {
+    return this.http.post<DepartmentMutationResponse>(
+      this.endpoint,
+      {
+        name: payload.name,
+        code: payload.code,
+      },
+      this.requestOptions
+    );
+  }
+
+  /*
+  |--------------------------------------------------------------------------
+  | FASE 21 - MODIFICAR
+  |--------------------------------------------------------------------------
+  */
+
+  update(
+    id: number,
+    payload: DepartmentPayload
+  ): Observable<DepartmentMutationResponse> {
+    return this.http.patch<DepartmentMutationResponse>(
+      `${this.endpoint}/${id}`,
+      {
+        name: payload.name,
+        code: payload.code,
+      },
+      this.requestOptions
+    );
+  }
+
+  /*
+  |--------------------------------------------------------------------------
+  | FASE 21 - DESACTIVAR
+  |--------------------------------------------------------------------------
+  |
+  | Laravel revoca solo las concesiones que
+  | dependían de la elegibilidad departamental
+  | y devuelve cuántas fueron.
+  |
+  */
+
+  deactivate(
+    id: number
+  ): Observable<DepartmentDeactivationResponse> {
+    return this.http.patch<DepartmentDeactivationResponse>(
+      `${this.endpoint}/${id}/deactivate`,
+      {},
+      this.requestOptions
     );
   }
 }

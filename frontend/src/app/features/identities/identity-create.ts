@@ -46,7 +46,7 @@ import {
 | YESIAM - JOINER: ALTA DE IDENTIDADES
 |--------------------------------------------------------------------------
 |
-| FASE 19.5.4.1
+| FASE 19.5.4.1 (estilos actualizados en la Fase 21)
 |
 | Formulario para registrar nuevas identidades.
 |
@@ -135,7 +135,7 @@ function trimmedEmail(
 
   template: `
     <section
-      class="joiner"
+      class="page page--narrow joiner"
       aria-labelledby="joiner-title"
     >
 
@@ -193,8 +193,8 @@ function trimmedEmail(
             <div>
               <dt>Estado</dt>
               <dd>
-                <span class="status suspended">
-                  Suspendido
+                <span class="badge badge--pending">
+                  Suspendida
                 </span>
               </dd>
             </div>
@@ -207,13 +207,20 @@ function trimmedEmail(
 
           <p>
             La identidad aún no puede iniciar sesión.
-            Permanecerá suspendida hasta que sea
-            activada mediante el proceso correspondiente.
+            Ábrela para activarla: YESIAM generará una
+            contraseña temporal que verás una sola vez.
           </p>
 
           <div class="actions">
             <a
               class="primary-button"
+              [routerLink]="['/identities', identity.id]"
+            >
+              Abrir identidad para activarla
+            </a>
+
+            <a
+              class="secondary-button"
               routerLink="/identities"
             >
               Ver directorio
@@ -467,54 +474,46 @@ function trimmedEmail(
   `,
 
   styles: [`
+    /*
+    | FASE 21: los botones, avisos, campos e
+    | insignias vienen del sistema de diseño
+    | global (styles.scss). Aquí solo queda
+    | lo propio de esta pantalla.
+    */
+
     :host {
       display: block;
-    }
-
-    .joiner {
-      max-width: 720px;
-      margin: 0 auto;
-      padding: 24px;
-      color: inherit;
     }
 
     .heading {
       margin-bottom: 24px;
     }
 
-    .back-link {
-      display: inline-block;
-      margin-bottom: 12px;
-      font-size: 14px;
-      color: #2563eb;
-      text-decoration: none;
-    }
-
     h1 {
-      margin: 0 0 8px;
+      margin: 0 0 6px;
       font-size: 26px;
-      font-weight: 700;
+      font-weight: 600;
     }
 
     .heading p {
-      margin: 0;
-      color: #64748b;
+      color: var(--text-muted);
     }
 
     .info {
-      padding: 16px 20px;
+      padding: 14px 18px;
       margin-bottom: 20px;
-      border: 1px solid #bfdbfe;
-      border-radius: 12px;
-      background: rgba(37, 99, 235, 0.06);
+      border: 1px solid #b9ded8;
+      border-radius: var(--radius-control);
+      background: var(--verified-tint);
       font-size: 14px;
-      line-height: 1.5;
     }
 
     .form {
       padding: 24px;
-      border: 1px solid #e2e8f0;
-      border-radius: 12px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-panel);
+      background: var(--surface);
+      box-shadow: var(--shadow-panel);
     }
 
     fieldset {
@@ -527,106 +526,13 @@ function trimmedEmail(
       min-width: 0;
     }
 
-    .field {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-    }
-
-    label {
-      font-size: 13px;
-      font-weight: 600;
-    }
-
-    input,
-    select {
-      width: 100%;
-      box-sizing: border-box;
-      min-height: 40px;
-      padding: 8px 12px;
-      border: 1px solid #cbd5e1;
-      border-radius: 8px;
-      background: transparent;
-      color: inherit;
-      font: inherit;
-    }
-
-    input[aria-invalid='true'],
-    select[aria-invalid='true'] {
-      border-color: #dc2626;
-    }
-
-    select option {
-      color: #0f172a;
-      background: white;
-    }
-
-    .field-error {
-      font-size: 13px;
-      color: #dc2626;
-    }
-
-    .actions {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      gap: 8px;
-    }
-
-    button,
-    .primary-button,
-    .secondary-button {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      box-sizing: border-box;
-      min-height: 40px;
-      padding: 8px 14px;
-      border-radius: 8px;
-      font: inherit;
-      text-decoration: none;
-      cursor: pointer;
-    }
-
-    button:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-    }
-
-    .primary-button {
-      border: 1px solid #2563eb;
-      color: #fff;
-      background: #2563eb;
-    }
-
-    .secondary-button {
-      border: 1px solid #cbd5e1;
-      background: transparent;
-      color: inherit;
-    }
-
     .notice {
-      padding: 24px;
       margin-bottom: 20px;
-      border: 1px solid #e2e8f0;
-      border-radius: 12px;
-    }
-
-    .notice.error {
-      border-color: #fca5a5;
-    }
-
-    .notice.success {
-      border-color: #86efac;
-    }
-
-    .notice p {
-      margin: 12px 0;
     }
 
     .summary {
       display: grid;
-      gap: 12px;
+      gap: 10px;
       margin: 16px 0;
     }
 
@@ -638,7 +544,7 @@ function trimmedEmail(
 
     .summary dt {
       font-size: 13px;
-      color: #64748b;
+      color: var(--text-muted);
     }
 
     .summary dd {
@@ -646,40 +552,14 @@ function trimmedEmail(
       overflow-wrap: anywhere;
     }
 
-    .status {
-      display: inline-block;
-      padding: 5px 10px;
-      border-radius: 999px;
-      font-size: 12px;
-      font-weight: 600;
-    }
-
-    .status.suspended {
-      background: #fef3c7;
-      color: #92400e;
-    }
-
-    .visually-hidden {
-      position: absolute;
-      width: 1px;
-      height: 1px;
-      overflow: hidden;
-      clip: rect(0 0 0 0);
-      white-space: nowrap;
-    }
-
     @media (max-width: 640px) {
-      .joiner {
-        padding: 16px;
-      }
-
       .form {
         padding: 16px;
       }
 
       .summary div {
         grid-template-columns: 1fr;
-        gap: 4px;
+        gap: 2px;
       }
 
       .actions > * {

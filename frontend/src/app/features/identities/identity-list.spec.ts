@@ -37,6 +37,9 @@ import type {
 |
 | 19.5.8: acceso al formulario Joiner.
 |
+| 21: nombres de departamento y enlace
+| al detalle de cada identidad.
+|
 | Validamos:
 |
 | - Carga inicial.
@@ -172,6 +175,28 @@ describe('IdentityList', () => {
     );
 
     component = fixture.componentInstance;
+
+    /*
+     * FASE 21: el directorio también consulta
+     * el catálogo de departamentos para mostrar
+     * nombres en lugar de identificadores.
+     */
+    httpMock
+      .expectOne(
+        (request) =>
+          request.method === 'GET' &&
+          request.url === '/api/departments'
+      )
+      .flush({
+        data: [
+          {
+            id: 2,
+            name: 'Finanzas',
+            code: 'FIN',
+            is_active: true,
+          },
+        ],
+      });
   });
 
   afterEach(() => {
@@ -267,11 +292,24 @@ describe('IdentityList', () => {
     expect(content).toContain('Carlos Rivera');
     expect(content).toContain('carlos@example.test');
 
-    expect(content).toContain('Activo');
-    expect(content).toContain('Suspendido');
+    expect(content).toContain('Activa');
+    expect(content).toContain('Suspendida');
 
-    expect(content).toContain('Departamento #2');
+    /*
+     * FASE 21: nombre del departamento.
+     */
+    expect(content).toContain('Finanzas');
     expect(content).toContain('Sin departamento');
+
+    /*
+     * Cada identidad enlaza a su detalle.
+     */
+    const detailLink: HTMLAnchorElement | null =
+      fixture.nativeElement.querySelector(
+        'tbody a[href="/identities/1"]'
+      );
+
+    expect(detailLink).not.toBeNull();
   });
 
   /*

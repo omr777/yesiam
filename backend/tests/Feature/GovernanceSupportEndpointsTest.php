@@ -213,6 +213,24 @@ class GovernanceSupportEndpointsTest extends TestCase
         ]);
     }
 
+    public function test_identities_can_be_filtered_by_permission(): void
+    {
+        $admin = $this->makeUser('iam_admin');
+        $manager = $this->makeUser('resource_manager');
+        $this->makeUser('employee');
+
+        $this->actingAs($admin, 'web')
+            ->getJson('/api/users?permission=access.approve')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $manager->id);
+
+        $this->actingAs($admin, 'web')
+            ->getJson('/api/users?permission=does.not_exist')
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('permission');
+    }
+
     /*
     |--------------------------------------------------------------------------
     | COLA DE CONCESIÓN

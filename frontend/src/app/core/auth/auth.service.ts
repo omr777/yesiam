@@ -39,7 +39,45 @@ export interface AuthenticatedUser {
   email: string;
   status?: string;
   department_id?: number | null;
+
+  /*
+   * FASE 21: GET /api/user incluye el
+   * departamento, los roles y los permisos
+   * efectivos. Son opcionales para seguir
+   * aceptando respuestas antiguas.
+   */
+  department?: {
+    id: number;
+    name: string;
+    code: string;
+    is_active: boolean;
+  } | null;
+  roles?: {
+    code: string;
+    name: string;
+  }[];
+  permissions?: string[];
 }
+
+/*
+ * Permisos definidos en RbacSeeder.
+ */
+export type Permission =
+  | 'profile.view'
+  | 'access.request'
+  | 'access.approve'
+  | 'access.grant'
+  | 'access.revoke'
+  | 'access.view_all'
+  | 'departments.view'
+  | 'departments.create'
+  | 'departments.update'
+  | 'departments.deactivate'
+  | 'users.view'
+  | 'users.manage'
+  | 'audit.view'
+  | 'resources.view'
+  | 'resources.manage';
 
 export interface LoginCredentials {
   email: string;
@@ -148,6 +186,32 @@ export class AuthService {
   readonly isAuthenticated = computed(
     () => this.currentUser() !== null
   );
+
+  /*
+  |--------------------------------------------------------------------------
+  | FASE 21 - PERMISOS PARA LA INTERFAZ
+  |--------------------------------------------------------------------------
+  |
+  | Solo deciden qué se MUESTRA.
+  |
+  | Ocultar un botón no protege nada: cada
+  | operación vuelve a autorizarse en Laravel.
+  |
+  */
+
+  readonly permissions = computed(
+    () => new Set(this.currentUser()?.permissions ?? [])
+  );
+
+  can(permission: Permission): boolean {
+    return this.permissions().has(permission);
+  }
+
+  canAny(permissions: readonly Permission[]): boolean {
+    return permissions.some((permission) =>
+      this.permissions().has(permission)
+    );
+  }
 
   /*
   |--------------------------------------------------------------------------

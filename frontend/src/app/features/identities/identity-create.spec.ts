@@ -631,7 +631,17 @@ describe('IdentityCreate', () => {
     expect(text()).toContain('Elena Martínez');
     expect(text()).toContain('elena@example.test');
     expect(text()).toContain('Recursos Humanos');
-    expect(text()).toContain('Suspendido');
+    expect(text()).toContain('Suspendida');
+
+    /*
+     * FASE 21: acceso directo al detalle
+     * para activar la identidad.
+     */
+    expect(
+      fixture.nativeElement.querySelector(
+        '.notice.success a[href="/identities/15"]'
+      )
+    ).not.toBeNull();
     expect(text()).toContain('employee');
 
     expect(

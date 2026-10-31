@@ -200,22 +200,22 @@ import {
       justify-content: center;
       align-items: center;
       gap: 24px;
-      color: #e8edf7;
+      color: #e7efed;
       background:
         radial-gradient(
           ellipse at 50% 0%,
-          #1d3154 0%,
+          #1c3a44 0%,
           transparent 55%
         ),
-        #0b1220;
+        #0d1a20;
     }
 
     .login-card {
       width: 100%;
       max-width: 440px;
       padding: 36px;
-      background: #111c2e;
-      border: 1px solid #293750;
+      background: #13232b;
+      border: 1px solid #2a4350;
       border-radius: 18px;
       box-shadow: 0 24px 70px #00000040;
     }
@@ -236,7 +236,7 @@ import {
       color: #ffffff;
       font-weight: 800;
       font-size: 22px;
-      background: #326be6;
+      background: #0f766e;
     }
 
     .brand-text {
@@ -252,17 +252,18 @@ import {
 
     .brand-text span {
       font-size: 11px;
-      color: #9caac1;
+      color: #9fb3b4;
     }
 
     .eyebrow {
-      color: #8eafff;
+      color: #5eead4;
       font-size: 11px;
       font-weight: 700;
       letter-spacing: 1.6px;
     }
 
     h1 {
+      color: #ffffff;
       margin: 12px 0;
       font-size: 29px;
       font-weight: 700;
@@ -271,7 +272,7 @@ import {
 
     .welcome p {
       margin: 0;
-      color: #a5b2c8;
+      color: #a9bcbd;
       line-height: 1.6;
       font-size: 14px;
     }
@@ -290,7 +291,7 @@ import {
     }
 
     label {
-      color: #dce5f4;
+      color: #dce8e6;
       font-size: 13px;
       font-weight: 600;
     }
@@ -300,8 +301,8 @@ import {
       height: 46px;
       padding: 0 14px;
       border-radius: 9px;
-      border: 1px solid #35445d;
-      background: #0c1524;
+      border: 1px solid #2f4a56;
+      background: #0f1d24;
       color: #ffffff;
       font: inherit;
       font-size: 14px;
@@ -310,12 +311,12 @@ import {
     }
 
     input::placeholder {
-      color: #71809a;
+      color: #71878b;
     }
 
     input:focus {
-      border-color: #6494ff;
-      box-shadow: 0 0 0 3px #326be626;
+      border-color: #2dd4bf;
+      box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.2);
     }
 
     input[aria-invalid="true"] {
@@ -343,7 +344,7 @@ import {
       border: 0;
       border-radius: 9px;
       color: #ffffff;
-      background: #326be6;
+      background: #0f766e;
       font: inherit;
       font-size: 14px;
       font-weight: 700;
@@ -352,7 +353,7 @@ import {
     }
 
     .submit-button:hover:not(:disabled) {
-      background: #4b80f2;
+      background: #12857c;
     }
 
     .submit-button:disabled {
@@ -361,7 +362,7 @@ import {
     }
 
     .submit-button:focus-visible {
-      outline: 3px solid #a6bfff;
+      outline: 3px solid #5eead4;
       outline-offset: 3px;
     }
 
@@ -372,8 +373,8 @@ import {
       gap: 8px;
       margin-top: 30px;
       padding-top: 22px;
-      border-top: 1px solid #293750;
-      color: #95a6bf;
+      border-top: 1px solid #2a4350;
+      color: #93a8aa;
       font-size: 11px;
       text-align: center;
     }
@@ -388,7 +389,7 @@ import {
     .page-footer {
       max-width: 440px;
       margin: 0;
-      color: #7887a1;
+      color: #7a8f92;
       text-align: center;
       font-size: 11px;
       line-height: 1.6;

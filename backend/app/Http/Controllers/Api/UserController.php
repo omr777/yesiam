@@ -56,6 +56,18 @@ class UserController extends Controller
             ],
             'per_page' => ['sometimes', 'integer', 'min:1', 'max:100'],
             'page' => ['sometimes', 'integer', 'min:1'],
+
+            /*
+             * FASE 20: filtrar por permiso efectivo.
+             * Se usa para elegir responsables de
+             * aprobación (access.approve).
+             */
+            'permission' => [
+                'sometimes',
+                'nullable',
+                'string',
+                Rule::exists('permissions', 'code'),
+            ],
         ]);
 
         $query = User::query()
@@ -84,6 +96,18 @@ class UserController extends Controller
          * El agrupamiento mantiene correctamente
          * combinados los filtros.
          */
+        if (isset($validated['permission'])) {
+            $permission = $validated['permission'];
+
+            $query->whereHas(
+                'roles.permissions',
+                fn ($builder) => $builder->where(
+                    'permissions.code',
+                    $permission
+                )
+            );
+        }
+
         if (isset($validated['search'])) {
             $search = trim($validated['search']);
 

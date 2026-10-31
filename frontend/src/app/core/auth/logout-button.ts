@@ -79,14 +79,14 @@ import { AuthService } from './auth.service';
     .logout-button {
       display: block;
       width: 100%;
-      min-height: 42px;
-      padding: 10px 14px;
+      min-height: 36px;
+      padding: 7px 12px;
 
-      border: 1px solid #45536b;
-      border-radius: 9px;
+      border: 1px solid var(--ink-line);
+      border-radius: var(--radius-control);
 
       background: transparent;
-      color: #e1e8f4;
+      color: var(--text-on-ink);
 
       font: inherit;
       font-size: 13px;
@@ -99,12 +99,12 @@ import { AuthService } from './auth.service';
     }
 
     .logout-button:hover:not(:disabled) {
-      background: #26344d;
-      border-color: #6981a9;
+      background: var(--ink);
+      border-color: #3d5b69;
     }
 
     .logout-button:focus-visible {
-      outline: 3px solid #7fa5ff;
+      outline: 3px solid #5eead4;
       outline-offset: 3px;
     }
 

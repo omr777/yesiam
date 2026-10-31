@@ -30,17 +30,28 @@ import {
   IdentityStatus,
 } from './identity.service';
 
+import {
+  Department,
+  DepartmentService,
+} from '../departments/department.service';
+
+import { StatusBadge } from '../../shared/ui/status-badge';
+
 /*
 |--------------------------------------------------------------------------
 | YESIAM - IDENTITY MANAGEMENT
 |--------------------------------------------------------------------------
 |
-| FASE 19.5.7
+| FASE 21
 |
 | Componente de consulta de identidades.
 |
 | 19.5.7: acceso al alta de identidades
 | (Joiner) desde el encabezado.
+|
+| 21: nombre del departamento en lugar de
+| su ID, acceso al detalle de cada identidad
+| y estilos del sistema de diseño.
 |
 | Incluye:
 |
@@ -67,25 +78,27 @@ import {
   imports: [
     FormsModule,
     RouterLink,
+    StatusBadge,
   ],
 
   changeDetection: ChangeDetectionStrategy.OnPush,
 
   template: `
     <section
-      class="identities"
+      class="page identities"
       aria-labelledby="identities-title"
     >
 
-      <header class="heading">
+      <header class="page-header heading">
         <div>
           <h1 id="identities-title">
-            Identity Management
+            Identidades
           </h1>
 
           <p>
-            Consulta las identidades registradas
-            en YESIAM.
+            Directorio de las personas registradas en YESIAM.
+            Abre una identidad para activarla, cambiar sus roles,
+            trasladarla o darla de baja.
           </p>
         </div>
 
@@ -101,7 +114,7 @@ import {
         @if (errorStatus() !== 403) {
 
           <a
-            class="primary-button new-identity"
+            class="btn btn-primary new-identity"
             routerLink="/identities/new"
           >
             + Nueva identidad
@@ -110,514 +123,305 @@ import {
         }
       </header>
 
-      <!--
-      ------------------------------------------------------
-      FILTROS
-      ------------------------------------------------------
-      -->
+      <div class="panel">
 
-      <form
-        class="filters"
-        (ngSubmit)="applySearch()"
-      >
+        <!--
+        ------------------------------------------------------
+        FILTROS
+        ------------------------------------------------------
+        -->
 
-        <div class="field search-field">
-          <label for="identity-search">
-            Buscar identidad
-          </label>
+        <form
+          class="filters"
+          (ngSubmit)="applySearch()"
+        >
 
-          <input
-            id="identity-search"
-            name="identitySearch"
-            type="search"
-            placeholder="Nombre o correo electrónico"
-            maxlength="100"
-            autocomplete="off"
-            [(ngModel)]="searchText"
-          />
-        </div>
+          <div class="field search-field">
+            <label for="identity-search">
+              Buscar identidad
+            </label>
 
-        <div class="field">
-          <label for="identity-status">
-            Estado
-          </label>
-
-          <select
-            id="identity-status"
-            name="identityStatus"
-            [(ngModel)]="selectedStatus"
-            (ngModelChange)="onStatusChange()"
-          >
-            <option value="">
-              Todos
-            </option>
-
-            <option value="active">
-              Activos
-            </option>
-
-            <option value="suspended">
-              Suspendidos
-            </option>
-
-            <option value="disabled">
-              Desactivados
-            </option>
-          </select>
-        </div>
-
-        <div class="actions">
-          <button
-            type="submit"
-            class="primary-button"
-            [disabled]="isLoading()"
-          >
-            Buscar
-          </button>
-
-          <button
-            type="button"
-            class="secondary-button"
-            [disabled]="isLoading()"
-            (click)="resetFilters()"
-          >
-            Limpiar
-          </button>
-        </div>
-
-      </form>
-
-      <!--
-      ------------------------------------------------------
-      RESULTADOS
-      ------------------------------------------------------
-      -->
-
-      <div class="results" aria-live="polite">
-
-        @if (isLoading()) {
-
-          <div class="notice" role="status">
-            Cargando identidades...
+            <input
+              id="identity-search"
+              name="identitySearch"
+              type="search"
+              placeholder="Nombre o correo electrónico"
+              maxlength="100"
+              autocomplete="off"
+              [(ngModel)]="searchText"
+            />
           </div>
 
-        } @else if (errorMessage()) {
+          <div class="field status-field">
+            <label for="identity-status">
+              Estado
+            </label>
 
-          <div class="notice error" role="alert">
+            <select
+              id="identity-status"
+              name="identityStatus"
+              [(ngModel)]="selectedStatus"
+              (ngModelChange)="onStatusChange()"
+            >
+              <option value="">
+                Todos
+              </option>
 
-            <strong>
-              No fue posible consultar las identidades.
-            </strong>
+              <option value="active">
+                Activas
+              </option>
 
-            <p>
-              {{ errorMessage() }}
-            </p>
+              <option value="suspended">
+                Suspendidas
+              </option>
 
-            @if (errorStatus() === 401) {
-
-              <a routerLink="/sign-in">
-                Ir al inicio de sesión
-              </a>
-
-            } @else if (errorStatus() !== 403) {
-
-              <button
-                type="button"
-                class="secondary-button"
-                (click)="load()"
-              >
-                Reintentar
-              </button>
-
-            }
-
+              <option value="disabled">
+                Desactivadas
+              </option>
+            </select>
           </div>
 
-        } @else if (identities().length === 0) {
+          <div class="actions">
+            <button
+              type="submit"
+              class="btn btn-primary"
+              [disabled]="isLoading()"
+            >
+              Buscar
+            </button>
 
-          <div class="notice">
-            No se encontraron identidades
-            con los filtros seleccionados.
+            <button
+              type="button"
+              class="btn"
+              [disabled]="isLoading()"
+              (click)="resetFilters()"
+            >
+              Limpiar
+            </button>
           </div>
 
-        } @else {
+        </form>
 
-          <div class="table-wrapper">
+        <!--
+        ------------------------------------------------------
+        RESULTADOS
+        ------------------------------------------------------
+        -->
 
-            <table>
+        <div class="results" aria-live="polite">
 
-              <thead>
-                <tr>
-                  <th scope="col">
-                    Identidad
-                  </th>
+          @if (isLoading()) {
 
-                  <th scope="col">
-                    Estado
-                  </th>
+            <div class="empty-state" role="status">
+              Cargando identidades...
+            </div>
 
-                  <th scope="col">
-                    Departamento
-                  </th>
-                </tr>
-              </thead>
+          } @else if (errorMessage()) {
 
-              <tbody>
+            <div class="results-message">
+              <div class="notice error" role="alert">
 
-                @for (
-                  identity of identities();
-                  track identity.id
-                ) {
+                <strong>
+                  No fue posible consultar las identidades.
+                </strong>
 
-                  <tr>
+                <p>
+                  {{ errorMessage() }}
+                </p>
 
-                    <td>
-                      <div class="identity-name">
-                        {{ identity.name }}
-                      </div>
+                @if (errorStatus() === 401) {
 
-                      <div class="identity-email">
-                        {{ identity.email }}
-                      </div>
-                    </td>
+                  <a routerLink="/sign-in">
+                    Ir al inicio de sesión
+                  </a>
 
-                    <td>
-                      @switch (identity.status) {
+                } @else if (errorStatus() !== 403) {
 
-                        @case ('active') {
-                          <span class="status active">
-                            Activo
-                          </span>
-                        }
-
-                        @case ('suspended') {
-                          <span class="status suspended">
-                            Suspendido
-                          </span>
-                        }
-
-                        @case ('disabled') {
-                          <span class="status disabled">
-                            Desactivado
-                          </span>
-                        }
-
-                        @default {
-                          <span class="status">
-                            Desconocido
-                          </span>
-                        }
-
-                      }
-                    </td>
-
-                    <td>
-                      @if (identity.department_id !== null) {
-                        Departamento #{{ identity.department_id }}
-                      } @else {
-                        Sin departamento
-                      }
-                    </td>
-
-                  </tr>
+                  <button
+                    type="button"
+                    class="btn"
+                    (click)="load()"
+                  >
+                    Reintentar
+                  </button>
 
                 }
 
-              </tbody>
+              </div>
+            </div>
 
-            </table>
+          } @else if (identities().length === 0) {
 
-          </div>
+            <div class="empty-state">
+              No se encontraron identidades
+              con los filtros seleccionados.
+            </div>
+
+          } @else {
+
+            <div class="table-wrap">
+
+              <table class="data-table">
+
+                <thead>
+                  <tr>
+                    <th scope="col">
+                      Identidad
+                    </th>
+
+                    <th scope="col">
+                      Estado
+                    </th>
+
+                    <th scope="col">
+                      Departamento
+                    </th>
+                  </tr>
+                </thead>
+
+                <tbody>
+
+                  @for (
+                    identity of identities();
+                    track identity.id
+                  ) {
+
+                    <tr>
+
+                      <td>
+                        <a
+                          class="row-link"
+                          [routerLink]="['/identities', identity.id]"
+                        >
+                          <div class="cell-primary identity-name">
+                            {{ identity.name }}
+                          </div>
+
+                          <div class="cell-secondary identity-email">
+                            {{ identity.email }}
+                          </div>
+                        </a>
+                      </td>
+
+                      <td>
+                        <app-status-badge
+                          kind="identity"
+                          [value]="identity.status"
+                        />
+                      </td>
+
+                      <td>
+                        {{ departmentLabel(identity.department_id) }}
+                      </td>
+
+                    </tr>
+
+                  }
+
+                </tbody>
+
+              </table>
+
+            </div>
+
+          }
+
+        </div>
+
+        <!--
+        ------------------------------------------------------
+        PAGINACIÓN
+        ------------------------------------------------------
+        -->
+
+        @if (
+          !isLoading() &&
+          !errorMessage() &&
+          total() > 0
+        ) {
+
+          <footer class="pager pagination">
+
+            <p>
+              Mostrando
+              {{ from() ?? 0 }}
+              a
+              {{ to() ?? 0 }}
+              de
+              {{ total() }}
+              identidades.
+            </p>
+
+            <div class="actions page-actions">
+
+              <button
+                type="button"
+                class="btn btn-sm"
+                [disabled]="currentPage() <= 1"
+                (click)="goToPage(currentPage() - 1)"
+              >
+                Anterior
+              </button>
+
+              <span>
+                Página
+                {{ currentPage() }}
+                de
+                {{ lastPage() }}
+              </span>
+
+              <button
+                type="button"
+                class="btn btn-sm"
+                [disabled]="currentPage() >= lastPage()"
+                (click)="goToPage(currentPage() + 1)"
+              >
+                Siguiente
+              </button>
+
+            </div>
+
+          </footer>
 
         }
 
       </div>
 
-      <!--
-      ------------------------------------------------------
-      PAGINACIÓN
-      ------------------------------------------------------
-      -->
-
-      @if (
-        !isLoading() &&
-        !errorMessage() &&
-        total() > 0
-      ) {
-
-        <footer class="pagination">
-
-          <p>
-            Mostrando
-            {{ from() ?? 0 }}
-            a
-            {{ to() ?? 0 }}
-            de
-            {{ total() }}
-            identidades.
-          </p>
-
-          <div class="page-actions">
-
-            <button
-              type="button"
-              class="secondary-button"
-              [disabled]="currentPage() <= 1"
-              (click)="goToPage(currentPage() - 1)"
-            >
-              Anterior
-            </button>
-
-            <span>
-              Página
-              {{ currentPage() }}
-              de
-              {{ lastPage() }}
-            </span>
-
-            <button
-              type="button"
-              class="secondary-button"
-              [disabled]="currentPage() >= lastPage()"
-              (click)="goToPage(currentPage() + 1)"
-            >
-              Siguiente
-            </button>
-
-          </div>
-
-        </footer>
-
-      }
-
     </section>
   `,
 
   styles: [`
-    :host {
-      display: block;
-    }
-
-    .identities {
-      max-width: 1200px;
-      margin: 0 auto;
-      padding: 24px;
-      color: inherit;
-    }
-
-    .heading {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
-      flex-wrap: wrap;
-      gap: 16px;
-      margin-bottom: 24px;
-    }
-
-    .new-identity {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      box-sizing: border-box;
-      min-height: 40px;
-      padding: 8px 14px;
-      border-radius: 8px;
-      font-weight: 600;
-      text-decoration: none;
-      white-space: nowrap;
-    }
-
-    h1 {
-      margin: 0 0 8px;
-      font-size: 26px;
-      font-weight: 700;
-    }
-
-    .heading p {
-      margin: 0;
-      color: #64748b;
-    }
-
     .filters {
       display: flex;
       flex-wrap: wrap;
-      align-items: end;
-      gap: 16px;
-      padding: 20px;
-      margin-bottom: 24px;
-      border: 1px solid #e2e8f0;
-      border-radius: 12px;
-    }
-
-    .field {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-      min-width: 180px;
+      align-items: flex-end;
+      gap: 14px;
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--line);
     }
 
     .search-field {
-      flex: 1;
+      flex: 1 1 280px;
     }
 
-    label {
-      font-size: 13px;
-      font-weight: 600;
+    .status-field {
+      flex: 0 1 200px;
     }
 
-    input,
-    select {
-      width: 100%;
-      box-sizing: border-box;
-      min-height: 40px;
-      padding: 8px 12px;
-      border: 1px solid #cbd5e1;
-      border-radius: 8px;
-      background: transparent;
-      color: inherit;
-      font: inherit;
-    }
-
-    select option {
-      color: #0f172a;
-      background: white;
-    }
-
-    .actions,
-    .page-actions {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    button {
-      min-height: 40px;
-      padding: 8px 14px;
-      border-radius: 8px;
-      font: inherit;
-      cursor: pointer;
-    }
-
-    button:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-    }
-
-    .primary-button {
-      border: 1px solid #2563eb;
-      color: #fff;
-      background: #2563eb;
-    }
-
-    .secondary-button {
-      border: 1px solid #cbd5e1;
-      background: transparent;
-      color: inherit;
-    }
-
-    .notice {
-      padding: 24px;
-      border: 1px solid #e2e8f0;
-      border-radius: 12px;
-    }
-
-    .notice.error {
-      border-color: #fca5a5;
-    }
-
-    .notice p {
-      margin: 12px 0;
-    }
-
-    .table-wrapper {
-      overflow-x: auto;
-      border: 1px solid #e2e8f0;
-      border-radius: 12px;
-    }
-
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      text-align: left;
-    }
-
-    th,
-    td {
-      padding: 16px;
-      border-bottom: 1px solid #e2e8f0;
-    }
-
-    th {
-      font-size: 13px;
-      color: #64748b;
-    }
-
-    tbody tr:last-child td {
-      border-bottom: 0;
-    }
-
-    .identity-name {
-      font-weight: 600;
-    }
-
-    .identity-email {
-      margin-top: 4px;
-      font-size: 13px;
-      color: #64748b;
-      overflow-wrap: anywhere;
-    }
-
-    .status {
-      display: inline-block;
-      padding: 5px 10px;
-      border-radius: 999px;
-      font-size: 12px;
-      font-weight: 600;
-    }
-
-    .status.active {
-      background: #dcfce7;
-      color: #166534;
-    }
-
-    .status.suspended {
-      background: #fef3c7;
-      color: #92400e;
-    }
-
-    .status.disabled {
-      background: #fee2e2;
-      color: #991b1b;
-    }
-
-    .pagination {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      flex-wrap: wrap;
-      gap: 16px;
-      margin-top: 20px;
-      font-size: 14px;
+    .results-message {
+      padding: 20px;
     }
 
     .pagination p {
       margin: 0;
-      color: #64748b;
     }
 
     @media (max-width: 640px) {
-      .identities {
-        padding: 16px;
-      }
-
-      .field,
-      .actions,
+      .status-field,
+      .filters .actions,
       .new-identity {
         width: 100%;
-      }
-
-      .pagination {
-        align-items: flex-start;
+        flex-basis: 100%;
       }
     }
   `],
@@ -632,6 +436,20 @@ export class IdentityList {
   private readonly destroyRef = inject(
     DestroyRef
   );
+
+  private readonly departmentService = inject(
+    DepartmentService
+  );
+
+  /*
+   * FASE 21: nombres de departamento.
+   *
+   * Si el catálogo no está disponible, la
+   * tabla muestra el identificador como antes.
+   */
+  private readonly departmentNames = signal<
+    Map<number, string>
+  >(new Map());
 
   /*
   |--------------------------------------------------------------------------
@@ -686,6 +504,39 @@ export class IdentityList {
 
   constructor() {
     this.load();
+    this.loadDepartments();
+  }
+
+  departmentLabel(departmentId: number | null): string {
+    if (departmentId === null) {
+      return 'Sin departamento';
+    }
+
+    return this.departmentNames().get(departmentId)
+      ?? `Departamento #${departmentId}`;
+  }
+
+  private loadDepartments(): void {
+    this.departmentService
+      .list()
+      .pipe(
+        takeUntilDestroyed(this.destroyRef)
+      )
+      .subscribe({
+        next: (response) => {
+          this.departmentNames.set(
+            new Map(
+              response.data.map(
+                (department: Department) =>
+                  [department.id, department.name]
+              )
+            )
+          );
+        },
+        error: () => {
+          this.departmentNames.set(new Map());
+        },
+      });
   }
 
   /*

@@ -3,7 +3,10 @@ import {
   provideBrowserGlobalErrorListeners,
 } from '@angular/core';
 
-import { provideRouter } from '@angular/router';
+import {
+  provideRouter,
+  withComponentInputBinding,
+} from '@angular/router';
 
 import {
   provideHttpClient,
@@ -52,7 +55,10 @@ export const appConfig: ApplicationConfig = {
     /*
      * Sistema de navegación de YESIAM.
      */
-    provideRouter(routes),
+    provideRouter(
+      routes,
+      withComponentInputBinding()
+    ),
 
     /*
      * Cliente HTTP de Angular.
