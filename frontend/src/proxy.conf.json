@@ -10,6 +10,11 @@
     "secure": false,
     "changeOrigin": false
   },
+  "/auth/**": {
+    "target": "http://localhost:8000",
+    "secure": false,
+    "changeOrigin": false
+  },
   "/login": {
     "target": "http://localhost:8000",
     "secure": false,

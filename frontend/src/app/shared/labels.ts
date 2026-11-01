@@ -82,6 +82,8 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   'identity.department_changed': 'Cambio de departamento (Mover)',
   'identity.deactivated': 'Identidad desactivada (Leaver)',
   'identity.roles_changed': 'Roles modificados',
+  'auth.entra_login': 'Inicio de sesión con Entra ID',
+  'auth.entra_linked': 'Cuenta enlazada con Entra ID',
   'department.created': 'Departamento creado',
   'department.updated': 'Departamento modificado',
   'department.deactivated': 'Departamento desactivado',

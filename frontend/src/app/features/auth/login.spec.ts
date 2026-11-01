@@ -530,4 +530,55 @@ describe('YESIAM - Login', () => {
 
     httpMock.expectNone('/login');
   });
+  /*
+   * FASE 22 - Inicio de sesión con Microsoft Entra ID.
+   */
+
+  it('should offer a Microsoft sign-in link that leaves the SPA', () => {
+    const fixture = createLogin();
+
+    const link = (fixture.nativeElement as HTMLElement)
+      .querySelector('a.sso-button') as HTMLAnchorElement;
+
+    expect(link).not.toBeNull();
+    expect(link.getAttribute('href')).toBe('/auth/microsoft/redirect');
+    expect(link.textContent).toContain('Microsoft Entra ID');
+  });
+
+  it('should show no SSO alert when there is no error code', () => {
+    const fixture = createLogin();
+
+    expect(
+      (fixture.nativeElement as HTMLElement).querySelector('.sso-alert')
+    ).toBeNull();
+  });
+
+  it.each([
+    ['entra_no_access', 'no tiene acceso a YESIAM'],
+    ['entra_denied', 'se canceló'],
+    ['entra_invalid', 'No se pudo validar'],
+    ['entra_unavailable', 'Microsoft no respondió'],
+    ['entra_not_configured', 'no está configurado'],
+  ])('should explain the %s error returned by Laravel', (code, text) => {
+    const fixture = TestBed.createComponent(Login);
+    fixture.componentRef.setInput('error', code);
+    fixture.detectChanges();
+
+    const alert = (fixture.nativeElement as HTMLElement)
+      .querySelector('.sso-alert');
+
+    expect(alert?.textContent).toContain(text);
+    expect(alert?.getAttribute('role')).toBe('alert');
+  });
+
+  it('should ignore unknown error codes instead of echoing them', () => {
+    const fixture = TestBed.createComponent(Login);
+    fixture.componentRef.setInput('error', '<script>alert(1)</script>');
+    fixture.detectChanges();
+
+    const root = fixture.nativeElement as HTMLElement;
+
+    expect(root.querySelector('.sso-alert')).toBeNull();
+    expect(root.textContent).not.toContain('<script>');
+  });
 });

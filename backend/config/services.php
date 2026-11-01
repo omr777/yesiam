@@ -28,6 +28,24 @@ return [
         'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Microsoft Entra ID (FASE 22)
+    |--------------------------------------------------------------------------
+    |
+    | El secreto vive solo en .env. Nunca se sube a git.
+    |
+    */
+
+    'entra' => [
+        'tenant_id' => env('ENTRA_TENANT_ID'),
+        'client_id' => env('ENTRA_CLIENT_ID'),
+        'client_secret' => env('ENTRA_CLIENT_SECRET'),
+        'redirect_uri' => env('ENTRA_REDIRECT_URI'),
+        'frontend_url' => env('FRONTEND_URL', 'http://localhost:4200'),
+        'authority' => env('ENTRA_AUTHORITY', 'https://login.microsoftonline.com'),
+    ],
+
     'slack' => [
         'notifications' => [
             'bot_user_oauth_token' => env('SLACK_BOT_USER_OAUTH_TOKEN'),

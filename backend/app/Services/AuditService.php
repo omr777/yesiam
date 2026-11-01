@@ -122,6 +122,28 @@ class AuditService
     }
 
     /*
+     * FASE 22 - Inicio de sesión con Microsoft Entra ID.
+     *
+     * Solo se registra el método y si fue el primer enlace.
+     * Nunca tokens, códigos ni identificadores de Entra.
+     */
+    public function entraLogin(
+        User $user,
+        bool $linked,
+        ?string $ipAddress
+    ): void {
+        $this->write(
+            $user,
+            $linked ? 'auth.entra_linked' : 'auth.entra_login',
+            $user,
+            [
+                'method' => 'entra',
+            ],
+            $ipAddress
+        );
+    }
+
+    /*
     |--------------------------------------------------------------------------
     | DEPARTAMENTOS
     |--------------------------------------------------------------------------

@@ -2,7 +2,9 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  computed,
   inject,
+  input,
   signal,
 } from '@angular/core';
 
@@ -41,6 +43,20 @@ import {
 | La autenticación real corresponde al backend.
 |
 */
+
+const SSO_ERRORS: Record<string, string> = {
+  entra_no_access:
+    'Tu cuenta de Microsoft es válida, pero no tiene acceso a YESIAM. ' +
+    'Pide a un administrador que registre y active tu identidad.',
+  entra_denied:
+    'El inicio de sesión con Microsoft se canceló.',
+  entra_invalid:
+    'No se pudo validar el inicio de sesión con Microsoft. Intenta nuevamente.',
+  entra_unavailable:
+    'Microsoft no respondió. Intenta nuevamente en unos minutos.',
+  entra_not_configured:
+    'El inicio de sesión con Microsoft no está configurado.',
+};
 
 @Component({
   selector: 'app-login',
@@ -167,6 +183,37 @@ import {
             }
           </button>
         </form>
+
+        @if (ssoMessage()) {
+          <div class="alert-error sso-alert" role="alert">
+            {{ ssoMessage() }}
+          </div>
+        }
+
+        <div class="sso-divider" aria-hidden="true">
+          <span>o</span>
+        </div>
+
+        <a
+          class="sso-button"
+          href="/auth/microsoft/redirect"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            width="18"
+            height="18"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M12 3 4 6v5c0 4.6 3.2 8.4 8 10 4.8-1.6 8-5.4 8-10V6l-8-3Z" />
+            <path d="m9 12 2 2 4-4" />
+          </svg>
+          Continuar con Microsoft Entra ID
+        </a>
 
         <footer class="login-footer">
           <span class="status-dot" aria-hidden="true"></span>
@@ -366,6 +413,55 @@ import {
       outline-offset: 3px;
     }
 
+    .sso-alert {
+      margin-top: 16px;
+    }
+
+    .sso-divider {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin: 22px 0 16px;
+      color: #93a8aa;
+      font-size: 12px;
+    }
+
+    .sso-divider::before,
+    .sso-divider::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: #2a4350;
+    }
+
+    .sso-button {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      width: 100%;
+      height: 46px;
+      border: 1px solid #3a5a68;
+      border-radius: 9px;
+      color: #e6f1f0;
+      background: transparent;
+      font: inherit;
+      font-size: 14px;
+      font-weight: 600;
+      text-decoration: none;
+      transition: background 150ms, border-color 150ms;
+    }
+
+    .sso-button:hover {
+      background: rgba(94, 234, 212, 0.08);
+      border-color: #5eead4;
+    }
+
+    .sso-button:focus-visible {
+      outline: 3px solid #5eead4;
+      outline-offset: 3px;
+    }
+
     .login-footer {
       display: flex;
       justify-content: center;
@@ -413,6 +509,17 @@ export class Login {
 
   readonly isSubmitting = signal(false);
   readonly errorMessage = signal<string | null>(null);
+
+  /*
+   * FASE 22 - Laravel redirige aquí con ?error=<código>
+   * cuando el inicio de sesión con Entra no se completa.
+   * withComponentInputBinding enlaza el parámetro.
+   */
+  readonly error = input<string | undefined>();
+
+  readonly ssoMessage = computed(() =>
+    SSO_ERRORS[this.error() ?? ''] ?? null
+  );
 
   readonly form = this.fb.nonNullable.group({
     email: ['', [Validators.required, Validators.email]],
